@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, FileText, Layout, Bot, Settings, Palette, Flame } from 'lucide-react';
+import { Moon, Sun, FileText, Layout, Bot, Settings, Palette, Flame, Monitor } from 'lucide-react';
 import { Toggle } from '../ui/Toggle';
 import { Card } from '../ui/Card';
 import { useTheme } from '../../contexts/ThemeContext';
 import { credentialsService } from '../../services/credentialsService';
 import { useToast } from '../../contexts/ToastContext';
+import { serverHealthService, ScreensaverStyle } from '../../services/serverHealthService';
+import { Select } from '../ui/Select';
 
 export const FeaturesSection = () => {
   const {
@@ -20,6 +22,8 @@ export const FeaturesSection = () => {
   const [agentsEnabled, setAgentsEnabled] = useState(false);
   
   const [logfireEnabled, setLogfireEnabled] = useState(false);
+  const [screensaverEnabled, setScreensaverEnabled] = useState(true);
+  const [screensaverStyle, setScreensaverStyle] = useState<ScreensaverStyle>('quantum-flux');
   const [loading, setLoading] = useState(true);
   const [projectsSchemaValid, setProjectsSchemaValid] = useState(true);
   const [projectsSchemaError, setProjectsSchemaError] = useState<string | null>(null);
@@ -34,10 +38,12 @@ export const FeaturesSection = () => {
       setLoading(true);
       
       // Load both Logfire and Projects settings, plus check projects schema
-      const [logfireResponse, projectsResponse, projectsHealthResponse] = await Promise.all([
+      const [logfireResponse, projectsResponse, projectsHealthResponse, screensaverEnabledRes, screensaverStyleRes] = await Promise.all([
         credentialsService.getCredential('LOGFIRE_ENABLED').catch(() => ({ value: undefined })),
         credentialsService.getCredential('PROJECTS_ENABLED').catch(() => ({ value: undefined })),
-        fetch(`${credentialsService['baseUrl']}/api/projects/health`).catch(() => null)
+        fetch(`${credentialsService['baseUrl']}/api/projects/health`).catch(() => null),
+        credentialsService.getCredential('SCREENSAVER_ENABLED').catch(() => ({ value: 'true' })),
+        credentialsService.getCredential('SCREENSAVER_STYLE').catch(() => ({ value: 'quantum-flux' }))
       ]);
       
       // Set Logfire setting
@@ -46,6 +52,10 @@ export const FeaturesSection = () => {
       } else {
         setLogfireEnabled(false);
       }
+      
+      // Set Screensaver settings
+      setScreensaverEnabled(screensaverEnabledRes.value === 'true');
+      setScreensaverStyle((screensaverStyleRes.value || 'quantum-flux') as ScreensaverStyle);
       
       // Check projects schema health
       console.log('🔍 Projects health response:', {
@@ -90,6 +100,8 @@ export const FeaturesSection = () => {
       // Default values on error
       setLogfireEnabled(false);
       setProjectsEnabled(true);
+      setScreensaverEnabled(true);
+      setScreensaverStyle('quantum-flux');
       setProjectsSchemaValid(false);
       setProjectsSchemaError('Failed to load settings');
     } finally {
@@ -163,6 +175,47 @@ export const FeaturesSection = () => {
 
   const handleThemeToggle = (checked: boolean) => {
     setTheme(checked ? 'dark' : 'light');
+  };
+
+  const handleScreensaverToggle = async (checked: boolean) => {
+    if (loading) return;
+    
+    try {
+      setLoading(true);
+      setScreensaverEnabled(checked);
+
+      await serverHealthService.updateSettings(checked, screensaverStyle);
+
+      showToast(
+        checked ? 'Screensaver Enabled' : 'Screensaver Disabled', 
+        checked ? 'success' : 'warning'
+      );
+    } catch (error) {
+      console.error('Failed to update screensaver setting:', error);
+      setScreensaverEnabled(!checked);
+      showToast('Failed to update screensaver setting', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleScreensaverStyleChange = async (value: string) => {
+    if (loading) return;
+    
+    try {
+      setLoading(true);
+      const style = value as ScreensaverStyle;
+      setScreensaverStyle(style);
+
+      await serverHealthService.updateSettings(screensaverEnabled, style);
+
+      showToast('Screensaver style updated', 'success');
+    } catch (error) {
+      console.error('Failed to update screensaver style:', error);
+      showToast('Failed to update screensaver style', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -266,6 +319,41 @@ export const FeaturesSection = () => {
               onCheckedChange={handleLogfireToggle} 
               accentColor="orange" 
               icon={<Flame className="w-5 h-5" />}
+              disabled={loading}
+            />
+          </div>
+        </div>
+
+        {/* Screensaver Toggle */}
+        <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-cyan-500/10 to-cyan-600/5 backdrop-blur-sm border border-cyan-500/20 shadow-lg">
+          <div className="flex-1 min-w-0">
+            <p className="font-medium text-gray-800 dark:text-white">
+              Screensaver
+            </p>
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Show animated screensaver when server disconnects
+            </p>
+            {screensaverEnabled && (
+              <div className="mt-2">
+                <Select
+                  value={screensaverStyle}
+                  onValueChange={handleScreensaverStyleChange}
+                  disabled={loading}
+                  className="text-xs"
+                >
+                  <option value="quantum-flux">Quantum Flux</option>
+                  <option value="neural-network">Neural Network</option>
+                  <option value="matrix-rain">Matrix Rain</option>
+                </Select>
+              </div>
+            )}
+          </div>
+          <div className="flex-shrink-0">
+            <Toggle 
+              checked={screensaverEnabled} 
+              onCheckedChange={handleScreensaverToggle} 
+              accentColor="cyan" 
+              icon={<Monitor className="w-5 h-5" />}
               disabled={loading}
             />
           </div>
