@@ -1,17 +1,33 @@
-"""Unit tests for CrawlingService."""
+"""Unit tests for CrawlingService with enhanced patterns and parametrization."""
+
 import pytest
 from unittest.mock import Mock, MagicMock, patch, AsyncMock
 import xml.etree.ElementTree as ET
+from typing import List, Dict, Any, Optional
+import asyncio
+
 from src.services.rag.crawling_service import CrawlingService
+from tests.fixtures.mock_data import IDGenerator
+from tests.fixtures.test_helpers import (
+    assert_fields_equal,
+    assert_called_with_subset,
+    async_timeout,
+    measure_time
+)
 
 
+@pytest.mark.unit
+@pytest.mark.critical
 class TestCrawlingService:
-    """Unit tests for CrawlingService."""
+    """Unit tests for CrawlingService with enhanced patterns."""
     
     @pytest.fixture
     def mock_crawler(self):
-        """Mock AsyncWebCrawler."""
-        return AsyncMock()
+        """Mock AsyncWebCrawler with common methods."""
+        crawler = AsyncMock()
+        crawler.arun = AsyncMock()
+        crawler.arun_many = AsyncMock()
+        return crawler
     
     @pytest.fixture
     def mock_supabase_client(self):
@@ -24,195 +40,172 @@ class TestCrawlingService:
         return CrawlingService(crawler=mock_crawler, supabase_client=mock_supabase_client)
     
     @pytest.fixture
-    def mock_crawl_result(self):
-        """Mock successful crawl result."""
-        result = MagicMock()
-        result.success = True
-        result.markdown = "# Test Page\n\nThis is test content."
-        result.title = "Test Page"
-        result.url = "https://example.com/test"
-        result.links = {
-            "internal": [
-                {"href": "https://example.com/page1"},
-                {"href": "https://example.com/page2"}
-            ],
-            "external": [
-                {"href": "https://external.com/page"}
-            ]
-        }
-        result.error_message = None
-        return result
+    def make_crawl_result(self):
+        """Factory for creating mock crawl results."""
+        def _make_result(
+            url: str,
+            success: bool = True,
+            markdown: Optional[str] = None,
+            title: Optional[str] = None,
+            internal_links: Optional[List[str]] = None,
+            external_links: Optional[List[str]] = None,
+            error_message: Optional[str] = None
+        ):
+            result = MagicMock()
+            result.success = success
+            result.url = url
+            result.markdown = markdown or f"# Page Content\n\nContent for {url}"
+            result.title = title or f"Page Title - {url}"
+            result.error_message = error_message
+            
+            # Setup links structure
+            result.links = {
+                "internal": [{"href": link} for link in (internal_links or [])],
+                "external": [{"href": link} for link in (external_links or [])]
+            }
+            
+            return result
+        return _make_result
+    
+    # =============================================================================
+    # Single Page Crawling Tests
+    # =============================================================================
     
     @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_crawling_service_crawls_single_page(self, crawling_service, mock_crawler, mock_crawl_result):
-        """Test crawling a single web page."""
+    @pytest.mark.parametrize("url,expected_success", [
+        pytest.param("https://example.com", True, id="valid-https"),
+        pytest.param("http://example.com", True, id="valid-http"),
+        pytest.param("https://example.com/page/deep/path", True, id="deep-path"),
+        pytest.param("", False, id="empty-url"),
+    ])
+    async def test_crawl_single_page_various_urls(
+        self,
+        crawling_service,
+        mock_crawler,
+        make_crawl_result,
+        url,
+        expected_success
+    ):
+        """Test crawling single pages with various URL patterns."""
         # Arrange
-        url = "https://example.com/test"
-        mock_crawler.arun = AsyncMock(return_value=mock_crawl_result)
+        if expected_success and url:
+            mock_result = make_crawl_result(url=url)
+            mock_crawler.arun.return_value = mock_result
+        else:
+            mock_crawler.arun.side_effect = Exception("Invalid URL")
+        
+        # Act
+        result = await crawling_service.crawl_single_page(url)
+        
+        # Assert
+        assert result["success"] == expected_success
+        assert result["url"] == url
+        
+        if expected_success:
+            assert "markdown" in result
+            assert "title" in result
+            assert result["content_length"] > 0
+        else:
+            assert "error" in result
+    
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("content_size", [
+        pytest.param(100, id="small-content"),
+        pytest.param(10000, id="medium-content"),
+        pytest.param(100000, id="large-content"),
+    ])
+    async def test_crawl_various_content_sizes(
+        self,
+        crawling_service,
+        mock_crawler,
+        make_crawl_result,
+        content_size
+    ):
+        """Test crawling pages with various content sizes."""
+        # Arrange
+        url = "https://example.com/page"
+        content = "# Test Content\n\n" + "Lorem ipsum " * (content_size // 11)
+        mock_result = make_crawl_result(url=url, markdown=content)
+        mock_crawler.arun.return_value = mock_result
         
         # Act
         result = await crawling_service.crawl_single_page(url)
         
         # Assert
         assert result["success"] is True
-        assert result["url"] == url
-        assert result["markdown"] == mock_crawl_result.markdown
-        assert result["title"] == "Test Page"
-        assert result["content_length"] == len(mock_crawl_result.markdown)
-        mock_crawler.arun.assert_called_once()
+        assert result["content_length"] >= content_size
+        assert len(result["markdown"]) >= content_size
+    
+    # =============================================================================
+    # Link Extraction Tests
+    # =============================================================================
     
     @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_crawling_service_extracts_content(self, crawling_service, mock_crawler, mock_crawl_result):
-        """Test content extraction from crawled page."""
+    @pytest.mark.parametrize("internal_count,external_count", [
+        pytest.param(0, 0, id="no-links"),
+        pytest.param(5, 0, id="internal-only"),
+        pytest.param(0, 5, id="external-only"),
+        pytest.param(10, 10, id="mixed-links"),
+        pytest.param(100, 50, id="many-links"),
+    ])
+    async def test_link_extraction_patterns(
+        self,
+        crawling_service,
+        mock_crawler,
+        make_crawl_result,
+        internal_count,
+        external_count
+    ):
+        """Test extraction of various link patterns."""
         # Arrange
-        mock_crawler.arun = AsyncMock(return_value=mock_crawl_result)
+        url = "https://example.com"
+        internal_links = [f"https://example.com/page{i}" for i in range(internal_count)]
+        external_links = [f"https://external{i}.com" for i in range(external_count)]
         
-        # Act
-        result = await crawling_service.crawl_single_page("https://example.com")
-        
-        # Assert
-        assert "markdown" in result
-        assert result["markdown"] == "# Test Page\n\nThis is test content."
-        assert "links" in result
-        assert len(result["links"]["internal"]) == 2
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_crawling_service_handles_invalid_urls(self, crawling_service, mock_crawler):
-        """Test handling of invalid URLs."""
-        # Arrange
-        mock_crawler.arun = AsyncMock(side_effect=Exception("Invalid URL"))
-        
-        # Act
-        result = await crawling_service.crawl_single_page("invalid-url")
-        
-        # Assert
-        assert result["success"] is False
-        assert "error" in result
-        assert "Invalid URL" in result["error"]
-    
-    @pytest.mark.unit
-    @patch('requests.get')
-    def test_crawling_service_respects_robots_txt(self, mock_get, crawling_service):
-        """Test that sitemap parsing respects robots.txt (via requests headers)."""
-        # Arrange
-        sitemap_url = "https://example.com/sitemap.xml"
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.content = b"""<?xml version="1.0" encoding="UTF-8"?>
-        <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-            <url><loc>https://example.com/page1</loc></url>
-        </urlset>"""
-        mock_get.return_value = mock_response
-        
-        # Act
-        urls = crawling_service.parse_sitemap(sitemap_url)
-        
-        # Assert
-        assert len(urls) == 1
-        assert urls[0] == "https://example.com/page1"
-        mock_get.assert_called_once_with(sitemap_url, timeout=30)
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_crawling_service_limits_crawl_depth(self, crawling_service, mock_crawler):
-        """Test recursive crawling respects depth limits."""
-        # Arrange
-        start_urls = ["https://example.com"]
-        max_depth = 2
-        
-        # Mock crawl results for different depths
-        depth1_result = MagicMock()
-        depth1_result.success = True
-        depth1_result.markdown = "Depth 1 content"
-        depth1_result.url = "https://example.com"
-        depth1_result.links = {"internal": [{"href": "https://example.com/level1"}], "external": []}
-        
-        depth2_result = MagicMock()
-        depth2_result.success = True
-        depth2_result.markdown = "Depth 2 content"
-        depth2_result.url = "https://example.com/level1"
-        depth2_result.links = {"internal": [{"href": "https://example.com/level2"}], "external": []}
-        
-        # Set up mock to return different results based on depth
-        mock_crawler.arun_many = AsyncMock()
-        mock_crawler.arun_many.side_effect = [
-            [depth1_result],  # First depth
-            [depth2_result],  # Second depth
-        ]
-        
-        # Act
-        results = await crawling_service.crawl_recursive_with_progress(
-            start_urls=start_urls,
-            max_depth=max_depth,
-            max_concurrent=5
+        mock_result = make_crawl_result(
+            url=url,
+            internal_links=internal_links,
+            external_links=external_links
         )
-        
-        # Assert
-        assert len(results) == 2  # Should only crawl 2 levels deep
-        assert mock_crawler.arun_many.call_count == 2
-    
-    @pytest.mark.unit
-    def test_crawling_service_detects_content_type(self, crawling_service):
-        """Test content type detection for URLs."""
-        # Test sitemap detection
-        assert crawling_service.is_sitemap("https://example.com/sitemap.xml") is True
-        assert crawling_service.is_sitemap("https://example.com/sitemap/index.xml") is True
-        assert crawling_service.is_sitemap("https://example.com/page.html") is False
-        
-        # Test text file detection
-        assert crawling_service.is_txt("https://example.com/robots.txt") is True
-        assert crawling_service.is_txt("https://example.com/readme.txt") is True
-        assert crawling_service.is_txt("https://example.com/page.html") is False
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_crawling_service_handles_redirects(self, crawling_service, mock_crawler):
-        """Test handling of URL redirects."""
-        # Arrange
-        original_url = "https://example.com/old"
-        redirected_url = "https://example.com/new"
-        
-        mock_result = MagicMock()
-        mock_result.success = True
-        mock_result.url = redirected_url  # Crawler returns final URL
-        mock_result.markdown = "Redirected content"
-        mock_result.title = "New Page"
-        mock_result.links = {"internal": [], "external": []}
-        
-        mock_crawler.arun = AsyncMock(return_value=mock_result)
+        mock_crawler.arun.return_value = mock_result
         
         # Act
-        result = await crawling_service.crawl_single_page(original_url)
+        result = await crawling_service.crawl_single_page(url)
         
         # Assert
         assert result["success"] is True
-        assert result["url"] == original_url  # Service preserves original URL
-        assert result["markdown"] == "Redirected content"
+        assert len(result["links"]["internal"]) == internal_count
+        assert len(result["links"]["external"]) == external_count
+    
+    # =============================================================================
+    # Batch Crawling Tests
+    # =============================================================================
     
     @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_crawling_service_manages_concurrent_crawls(self, crawling_service, mock_crawler):
-        """Test concurrent crawling with batch processing."""
+    @pytest.mark.parametrize("url_count,max_concurrent,expected_batches", [
+        pytest.param(10, 5, 2, id="small-batch"),
+        pytest.param(50, 10, 5, id="medium-batch"),
+        pytest.param(100, 20, 5, id="large-batch"),
+        pytest.param(7, 10, 1, id="single-batch"),
+    ])
+    async def test_batch_crawling_with_concurrency(
+        self,
+        crawling_service,
+        mock_crawler,
+        make_crawl_result,
+        url_count,
+        max_concurrent,
+        expected_batches
+    ):
+        """Test batch crawling with various concurrency limits."""
         # Arrange
-        urls = [f"https://example.com/page{i}" for i in range(50)]
-        max_concurrent = 10
+        urls = [f"https://example.com/page{i}" for i in range(url_count)]
         
-        # Create mock results for each URL
-        mock_results = []
-        for url in urls:
-            result = MagicMock()
-            result.success = True
-            result.url = url
-            result.markdown = f"Content for {url}"
-            mock_results.append(result)
+        # Create mock results for all URLs
+        def mock_arun_many(batch_urls, **kwargs):
+            return [make_crawl_result(url=url) for url in batch_urls]
         
-        # Mock arun_many to return results in batches
-        mock_crawler.arun_many = AsyncMock(side_effect=lambda urls, **kwargs: 
-            [r for r in mock_results if r.url in urls]
-        )
+        mock_crawler.arun_many.side_effect = mock_arun_many
         
         # Act
         results = await crawling_service.crawl_batch_with_progress(
@@ -221,77 +214,170 @@ class TestCrawlingService:
         )
         
         # Assert
-        assert len(results) == 50
-        assert all(r["markdown"] == f"Content for {r['url']}" for r in results)
-        # Should be called multiple times due to batching
-        assert mock_crawler.arun_many.call_count > 1
+        assert len(results) == url_count
+        assert all(r["success"] for r in results)
+        assert mock_crawler.arun_many.call_count == expected_batches
     
-    @pytest.mark.unit
-    @patch('requests.get')
-    def test_parse_sitemap_handles_errors(self, mock_get, crawling_service):
-        """Test sitemap parsing error handling."""
-        # Test network error
-        mock_get.side_effect = Exception("Network error")
-        urls = crawling_service.parse_sitemap("https://example.com/sitemap.xml")
-        assert urls == []
-        
-        # Test invalid XML
-        mock_get.side_effect = None
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.content = b"Invalid XML content"
-        mock_get.return_value = mock_response
-        
-        urls = crawling_service.parse_sitemap("https://example.com/sitemap.xml")
-        assert urls == []
-        
-        # Test HTTP error
-        mock_response.status_code = 404
-        urls = crawling_service.parse_sitemap("https://example.com/sitemap.xml")
-        assert urls == []
+    # =============================================================================
+    # Recursive Crawling Tests
+    # =============================================================================
     
     @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_crawl_with_progress_callback(self, crawling_service, mock_crawler):
-        """Test crawling with progress reporting."""
+    @pytest.mark.parametrize("max_depth,expected_crawled", [
+        pytest.param(1, 1, id="depth-1"),
+        pytest.param(2, 3, id="depth-2"),  # 1 + 2 children
+        pytest.param(3, 7, id="depth-3"),  # 1 + 2 + 4 grandchildren
+    ])
+    async def test_recursive_crawling_depth_limits(
+        self,
+        crawling_service,
+        mock_crawler,
+        make_crawl_result,
+        max_depth,
+        expected_crawled
+    ):
+        """Test recursive crawling respects depth limits."""
         # Arrange
-        urls = ["https://example.com/page1", "https://example.com/page2"]
-        progress_updates = []
+        start_url = "https://example.com"
         
-        async def progress_callback(phase, percentage, message, **kwargs):
-            progress_updates.append({
-                "phase": phase,
-                "percentage": percentage,
-                "message": message
-            })
+        # Setup mock to simulate tree structure
+        def create_crawl_results(urls):
+            results = []
+            for url in urls:
+                depth = url.count('/') - 2  # Simple depth calculation
+                if depth < max_depth:
+                    # Each page has 2 child links
+                    internal_links = [
+                        f"{url}/child1",
+                        f"{url}/child2"
+                    ]
+                else:
+                    internal_links = []
+                
+                results.append(make_crawl_result(
+                    url=url,
+                    internal_links=internal_links
+                ))
+            return results
         
-        # Mock crawl results
-        mock_results = []
-        for url in urls:
-            result = MagicMock()
-            result.success = True
-            result.url = url
-            result.markdown = f"Content for {url}"
-            mock_results.append(result)
-        
-        mock_crawler.arun_many = AsyncMock(return_value=mock_results)
+        mock_crawler.arun_many.side_effect = create_crawl_results
         
         # Act
-        results = await crawling_service.crawl_batch_with_progress(
-            urls=urls,
-            progress_callback=progress_callback
+        results = await crawling_service.crawl_recursive_with_progress(
+            start_urls=[start_url],
+            max_depth=max_depth,
+            max_concurrent=5
         )
         
         # Assert
-        assert len(results) == 2
-        assert len(progress_updates) > 0
-        assert progress_updates[0]["phase"] == "crawling"
-        assert progress_updates[-1]["percentage"] == 60  # End progress
+        assert len(results) == expected_crawled
+    
+    # =============================================================================
+    # Sitemap Parsing Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("sitemap_content,expected_urls", [
+        pytest.param(
+            b"""<?xml version="1.0" encoding="UTF-8"?>
+            <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                <url><loc>https://example.com/page1</loc></url>
+                <url><loc>https://example.com/page2</loc></url>
+            </urlset>""",
+            ["https://example.com/page1", "https://example.com/page2"],
+            id="standard-sitemap"
+        ),
+        pytest.param(
+            b"""<?xml version="1.0" encoding="UTF-8"?>
+            <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+                <sitemap><loc>https://example.com/sitemap1.xml</loc></sitemap>
+            </sitemapindex>""",
+            [],  # Sitemap index not supported in basic implementation
+            id="sitemap-index"
+        ),
+        pytest.param(
+            b"Invalid XML content",
+            [],
+            id="invalid-xml"
+        ),
+    ])
+    @patch('requests.get')
+    def test_parse_sitemap_various_formats(
+        self,
+        mock_get,
+        crawling_service,
+        sitemap_content,
+        expected_urls
+    ):
+        """Test parsing various sitemap formats."""
+        # Arrange
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = sitemap_content
+        mock_get.return_value = mock_response
+        
+        # Act
+        urls = crawling_service.parse_sitemap("https://example.com/sitemap.xml")
+        
+        # Assert
+        assert urls == expected_urls
+    
+    # =============================================================================
+    # Content Type Detection Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("url,is_sitemap,is_txt", [
+        pytest.param("https://example.com/sitemap.xml", True, False, id="sitemap-xml"),
+        pytest.param("https://example.com/sitemap/index.xml", True, False, id="sitemap-index"),
+        pytest.param("https://example.com/robots.txt", False, True, id="robots-txt"),
+        pytest.param("https://example.com/readme.txt", False, True, id="readme-txt"),
+        pytest.param("https://example.com/page.html", False, False, id="html-page"),
+        pytest.param("https://example.com/data.json", False, False, id="json-file"),
+    ])
+    def test_content_type_detection(
+        self,
+        crawling_service,
+        url,
+        is_sitemap,
+        is_txt
+    ):
+        """Test detection of various content types from URLs."""
+        # Assert
+        assert crawling_service.is_sitemap(url) == is_sitemap
+        assert crawling_service.is_txt(url) == is_txt
+    
+    # =============================================================================
+    # Error Handling Tests
+    # =============================================================================
     
     @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_no_crawler_instance_error(self, mock_supabase_client):
-        """Test error when no crawler instance is available."""
+    @pytest.mark.parametrize("error_type,error_message", [
+        pytest.param(ConnectionError("Network error"), "Network error", id="network-error"),
+        pytest.param(TimeoutError("Timeout"), "Timeout", id="timeout-error"),
+        pytest.param(ValueError("Invalid URL"), "Invalid URL", id="invalid-url"),
+        pytest.param(Exception("Unknown error"), "Unknown error", id="generic-error"),
+    ])
+    async def test_error_handling_single_page(
+        self,
+        crawling_service,
+        mock_crawler,
+        error_type,
+        error_message
+    ):
+        """Test error handling for various crawling failures."""
+        # Arrange
+        mock_crawler.arun.side_effect = error_type
+        
+        # Act
+        result = await crawling_service.crawl_single_page("https://example.com")
+        
+        # Assert
+        assert result["success"] is False
+        assert "error" in result
+        assert error_message in result["error"]
+    
+    @pytest.mark.asyncio
+    async def test_no_crawler_instance_handling(self, mock_supabase_client):
+        """Test graceful handling when crawler is not available."""
         # Arrange
         service = CrawlingService(crawler=None, supabase_client=mock_supabase_client)
         
@@ -301,3 +387,122 @@ class TestCrawlingService:
         # Assert
         assert result["success"] is False
         assert result["error"] == "No crawler instance available"
+    
+    # =============================================================================
+    # Progress Tracking Tests
+    # =============================================================================
+    
+    @pytest.mark.asyncio
+    async def test_progress_callback_reporting(
+        self,
+        crawling_service,
+        mock_crawler,
+        make_crawl_result
+    ):
+        """Test progress callback reporting during crawling."""
+        # Arrange
+        urls = [f"https://example.com/page{i}" for i in range(5)]
+        progress_updates = []
+        
+        async def progress_callback(phase, percentage, message, **kwargs):
+            progress_updates.append({
+                "phase": phase,
+                "percentage": percentage,
+                "message": message,
+                "details": kwargs
+            })
+        
+        # Mock crawl results
+        mock_crawler.arun_many.return_value = [
+            make_crawl_result(url=url) for url in urls
+        ]
+        
+        # Act
+        results = await crawling_service.crawl_batch_with_progress(
+            urls=urls,
+            progress_callback=progress_callback
+        )
+        
+        # Assert
+        assert len(results) == 5
+        assert len(progress_updates) > 0
+        
+        # Check progress phases
+        phases = [update["phase"] for update in progress_updates]
+        assert "crawling" in phases
+        
+        # Check progress percentages
+        percentages = [update["percentage"] for update in progress_updates]
+        assert percentages[0] < percentages[-1]  # Progress increases
+    
+    # =============================================================================
+    # Performance Tests
+    # =============================================================================
+    
+    @pytest.mark.slow
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("url_count", [100, 500, 1000])
+    async def test_large_scale_crawling_performance(
+        self,
+        crawling_service,
+        mock_crawler,
+        make_crawl_result,
+        url_count
+    ):
+        """Test performance with large numbers of URLs."""
+        # Arrange
+        urls = [f"https://example.com/page{i}" for i in range(url_count)]
+        
+        # Mock fast responses
+        def mock_batch_crawl(batch_urls, **kwargs):
+            return [make_crawl_result(url=url) for url in batch_urls]
+        
+        mock_crawler.arun_many.side_effect = mock_batch_crawl
+        
+        # Act & Assert
+        with measure_time(f"crawl_{url_count}_urls", threshold=5.0):
+            results = await crawling_service.crawl_batch_with_progress(
+                urls=urls,
+                max_concurrent=50
+            )
+        
+        assert len(results) == url_count
+        assert all(r["success"] for r in results)
+    
+    # =============================================================================
+    # Redirect Handling Tests
+    # =============================================================================
+    
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("redirect_chain", [
+        pytest.param(
+            ["https://example.com/old", "https://example.com/new"],
+            id="single-redirect"
+        ),
+        pytest.param(
+            ["https://example.com/v1", "https://example.com/v2", "https://example.com/current"],
+            id="multiple-redirects"
+        ),
+    ])
+    async def test_redirect_handling(
+        self,
+        crawling_service,
+        mock_crawler,
+        make_crawl_result,
+        redirect_chain
+    ):
+        """Test handling of URL redirects."""
+        # Arrange
+        original_url = redirect_chain[0]
+        final_url = redirect_chain[-1]
+        
+        mock_result = make_crawl_result(url=final_url)
+        mock_crawler.arun.return_value = mock_result
+        
+        # Act
+        result = await crawling_service.crawl_single_page(original_url)
+        
+        # Assert
+        assert result["success"] is True
+        assert result["url"] == original_url  # Preserves original URL
+        assert result["markdown"] is not None

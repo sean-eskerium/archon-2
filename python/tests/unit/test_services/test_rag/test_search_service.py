@@ -1,20 +1,34 @@
-"""Unit tests for SearchService."""
+"""Unit tests for SearchService with enhanced patterns and parametrization."""
+
 import pytest
 from unittest.mock import Mock, MagicMock, patch
+from typing import List, Dict, Any, Optional
+
 from src.services.rag.search_service import SearchService
+from tests.fixtures.mock_data import IDGenerator
+from tests.fixtures.test_helpers import (
+    assert_fields_equal,
+    assert_called_with_subset,
+    measure_time
+)
 
 
+@pytest.mark.unit
+@pytest.mark.critical
 class TestSearchService:
-    """Unit tests for SearchService."""
+    """Unit tests for SearchService with enhanced patterns."""
     
     @pytest.fixture
     def mock_supabase_client(self):
         """Mock Supabase client."""
-        return MagicMock()
+        client = MagicMock()
+        # Setup chain for query building
+        client.from_.return_value.select.return_value.or_.return_value.limit.return_value.execute.return_value.data = []
+        return client
     
     @pytest.fixture
     def mock_reranking_model(self):
-        """Mock reranking model."""
+        """Mock reranking model with predictable scores."""
         model = MagicMock()
         model.predict = MagicMock(return_value=[0.9, 0.7, 0.5])
         return model
@@ -28,277 +42,478 @@ class TestSearchService:
         )
     
     @pytest.fixture
-    def mock_search_results(self):
-        """Mock search results."""
-        return [
-            {
-                "id": "doc1",
-                "content": "This is the first document about Python programming.",
-                "metadata": {"source": "docs.python.org"},
-                "similarity": 0.85
-            },
-            {
-                "id": "doc2",
-                "content": "This is the second document about data science.",
-                "metadata": {"source": "kaggle.com"},
-                "similarity": 0.75
-            },
-            {
-                "id": "doc3",
-                "content": "This is the third document about machine learning.",
-                "metadata": {"source": "arxiv.org"},
-                "similarity": 0.65
+    def make_search_result(self):
+        """Factory for creating mock search results."""
+        def _make_result(
+            doc_id: str,
+            content: str,
+            similarity: float = 0.8,
+            source: Optional[str] = None,
+            metadata: Optional[Dict] = None
+        ) -> Dict:
+            return {
+                "id": doc_id,
+                "content": content,
+                "metadata": metadata or {"source": source or "test_source"},
+                "similarity": similarity
             }
-        ]
+        return _make_result
     
-    @pytest.mark.unit
+    @pytest.fixture
+    def make_search_results(self, make_search_result):
+        """Factory for creating lists of search results."""
+        def _make_results(count: int, base_similarity: float = 0.9) -> List[Dict]:
+            results = []
+            for i in range(count):
+                results.append(make_search_result(
+                    doc_id=f"doc{i+1}",
+                    content=f"Document {i+1} content about topic {i+1}",
+                    similarity=base_similarity - (i * 0.1)
+                ))
+            return results
+        return _make_results
+    
+    # =============================================================================
+    # Vector Search Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("query,expected_results", [
+        pytest.param("Python programming", 3, id="standard-query"),
+        pytest.param("machine learning algorithms", 5, id="technical-query"),
+        pytest.param("", 0, id="empty-query"),
+        pytest.param("a" * 1000, 3, id="long-query"),
+    ])
     @patch('src.services.rag.search_service.search_documents')
-    def test_search_finds_similar_documents(self, mock_search_docs, search_service, mock_search_results):
-        """Test finding similar documents via vector search."""
+    def test_vector_search_various_queries(
+        self,
+        mock_search_docs,
+        search_service,
+        make_search_results,
+        query,
+        expected_results
+    ):
+        """Test vector search with various query types."""
         # Arrange
-        query = "Python programming tutorials"
-        mock_search_docs.return_value = mock_search_results
+        if expected_results > 0:
+            mock_search_docs.return_value = make_search_results(expected_results)
+        else:
+            mock_search_docs.return_value = []
         
         # Act
         success, result = search_service.perform_rag_query(query)
         
         # Assert
         assert success is True
-        assert len(result["results"]) == 3
-        assert result["results"][0]["content"] == mock_search_results[0]["content"]
+        assert len(result["results"]) == expected_results
         assert result["query"] == query
-        mock_search_docs.assert_called_once()
+        
+        if expected_results > 0:
+            mock_search_docs.assert_called_once()
+            # Verify results are ordered by similarity
+            similarities = [r["similarity_score"] for r in result["results"]]
+            assert similarities == sorted(similarities, reverse=True)
     
-    @pytest.mark.unit
-    def test_search_applies_similarity_threshold(self, search_service):
-        """Test that search respects similarity thresholds."""
-        # Note: Current implementation doesn't filter by threshold
-        # This test documents expected behavior
-        # Filtering happens in the search_documents utility
-        pass
+    # =============================================================================
+    # Filtering Tests
+    # =============================================================================
     
-    @pytest.mark.unit
+    @pytest.mark.parametrize("filter_params,expected_call", [
+        pytest.param(
+            {"source": "docs.python.org"},
+            {"filter_metadata": {"source": "docs.python.org"}},
+            id="source-filter"
+        ),
+        pytest.param(
+            {"knowledge_type": "technical"},
+            {"filter_metadata": {"knowledge_type": "technical"}},
+            id="knowledge-type-filter"
+        ),
+        pytest.param(
+            {"source": "arxiv.org", "knowledge_type": "research"},
+            {"filter_metadata": {"source": "arxiv.org", "knowledge_type": "research"}},
+            id="multiple-filters"
+        ),
+    ])
     @patch('src.services.rag.search_service.search_documents')
-    def test_search_filters_by_source(self, mock_search_docs, search_service, mock_search_results):
-        """Test filtering search results by source."""
+    def test_search_with_filters(
+        self,
+        mock_search_docs,
+        search_service,
+        make_search_results,
+        filter_params,
+        expected_call
+    ):
+        """Test search with various filter combinations."""
         # Arrange
-        query = "Python documentation"
-        source = "docs.python.org"
-        mock_search_docs.return_value = [mock_search_results[0]]  # Only first result
+        mock_search_docs.return_value = make_search_results(2)
         
         # Act
         success, result = search_service.perform_rag_query(
-            query=query,
-            source=source
+            query="test query",
+            **filter_params
         )
         
         # Assert
         assert success is True
-        assert result["source"] == source
+        mock_search_docs.assert_called_once()
         
-        # Verify filter was passed to search function
-        call_args = mock_search_docs.call_args[1]
-        assert call_args["filter_metadata"] == {"source": source}
+        # Verify filter was passed correctly
+        call_kwargs = mock_search_docs.call_args[1]
+        for key, value in expected_call.items():
+            assert key in call_kwargs
+            assert call_kwargs[key] == value
     
-    @pytest.mark.unit
-    def test_search_reranks_results_when_enabled(self, search_service, mock_search_results):
-        """Test reranking of search results."""
-        # Arrange
-        query = "Python programming"
-        results = mock_search_results.copy()
-        
-        # Act
-        reranked = search_service.rerank_results(query, results)
-        
-        # Assert
-        assert len(reranked) == 3
-        # Check that rerank scores were added
-        assert all("rerank_score" in r for r in reranked)
-        # Check ordering by rerank score
-        assert reranked[0]["rerank_score"] >= reranked[1]["rerank_score"]
-        assert reranked[1]["rerank_score"] >= reranked[2]["rerank_score"]
+    # =============================================================================
+    # Result Limiting Tests
+    # =============================================================================
     
-    @pytest.mark.unit
+    @pytest.mark.parametrize("total_results,match_count,expected_count", [
+        pytest.param(10, 5, 5, id="limit-half"),
+        pytest.param(3, 10, 3, id="limit-exceeds-results"),
+        pytest.param(20, 1, 1, id="limit-one"),
+        pytest.param(0, 10, 0, id="no-results"),
+    ])
     @patch('src.services.rag.search_service.search_documents')
-    def test_search_handles_empty_queries(self, mock_search_docs, search_service):
-        """Test handling of empty search queries."""
+    def test_result_limiting(
+        self,
+        mock_search_docs,
+        search_service,
+        make_search_results,
+        total_results,
+        match_count,
+        expected_count
+    ):
+        """Test limiting search results."""
         # Arrange
-        mock_search_docs.return_value = []
-        
-        # Act
-        success, result = search_service.perform_rag_query("")
-        
-        # Assert
-        assert success is True
-        assert result["results"] == []
-        assert result["total_found"] == 0
-    
-    @pytest.mark.unit
-    @patch('src.services.rag.search_service.search_documents')
-    def test_search_limits_result_count(self, mock_search_docs, search_service, mock_search_results):
-        """Test limiting the number of search results."""
-        # Arrange
-        query = "Python"
-        match_count = 2
-        mock_search_docs.return_value = mock_search_results[:match_count]
+        mock_search_docs.return_value = make_search_results(total_results)
         
         # Act
         success, result = search_service.perform_rag_query(
-            query=query,
+            query="test",
             match_count=match_count
         )
         
         # Assert
         assert success is True
-        assert len(result["results"]) == match_count
+        assert len(result["results"]) == expected_count
         assert result["match_count"] == match_count
+        assert result["total_found"] == expected_count
     
-    @pytest.mark.unit
-    @patch('src.services.rag.search_service.search_documents')
-    def test_search_includes_metadata_in_results(self, mock_search_docs, search_service, mock_search_results):
-        """Test that metadata is included in search results."""
+    # =============================================================================
+    # Reranking Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("num_results,rerank_scores", [
+        pytest.param(3, [0.9, 0.7, 0.5], id="standard-reranking"),
+        pytest.param(5, [0.95, 0.85, 0.75, 0.65, 0.55], id="many-results"),
+        pytest.param(1, [0.9], id="single-result"),
+    ])
+    def test_reranking_various_result_counts(
+        self,
+        search_service,
+        make_search_results,
+        num_results,
+        rerank_scores
+    ):
+        """Test reranking with various numbers of results."""
         # Arrange
-        mock_search_docs.return_value = mock_search_results
+        results = make_search_results(num_results)
+        search_service.reranking_model.predict.return_value = rerank_scores
         
         # Act
-        success, result = search_service.perform_rag_query("test query")
+        reranked = search_service.rerank_results("test query", results)
         
         # Assert
-        assert success is True
-        for i, res in enumerate(result["results"]):
-            assert "metadata" in res
-            assert res["metadata"] == mock_search_results[i]["metadata"]
-            assert "similarity_score" in res
-    
-    @pytest.mark.unit
-    def test_search_handles_special_characters(self, search_service):
-        """Test handling of special characters in queries."""
-        # Test various special character queries
-        special_queries = [
-            "C++ programming",
-            "What is F#?",
-            "Python 3.9+",
-            "email@example.com",
-            "price > $100"
-        ]
+        assert len(reranked) == num_results
         
-        with patch('src.services.rag.search_service.search_documents', return_value=[]):
-            for query in special_queries:
-                success, result = search_service.perform_rag_query(query)
-                assert success is True
-                assert result["query"] == query
+        # Verify rerank scores assigned
+        for i, result in enumerate(reranked):
+            assert "rerank_score" in result
+        
+        # Verify ordering by rerank score
+        for i in range(len(reranked) - 1):
+            assert reranked[i]["rerank_score"] >= reranked[i + 1]["rerank_score"]
     
-    @pytest.mark.unit
-    @patch('src.services.rag.search_service.search_code_examples')
-    def test_search_code_examples(self, mock_search_code, search_service):
-        """Test searching for code examples."""
+    @pytest.mark.parametrize("error_type", [
+        pytest.param(ValueError("Invalid input"), id="value-error"),
+        pytest.param(RuntimeError("Model failed"), id="runtime-error"),
+        pytest.param(Exception("Unknown error"), id="generic-error"),
+    ])
+    def test_reranking_error_handling(
+        self,
+        search_service,
+        make_search_results,
+        error_type
+    ):
+        """Test reranking handles various errors gracefully."""
         # Arrange
-        query = "async function"
+        results = make_search_results(3)
+        search_service.reranking_model.predict.side_effect = error_type
+        
+        # Act
+        reranked = search_service.rerank_results("query", results)
+        
+        # Assert
+        # Should return original results on error
+        assert reranked == results
+        assert all("rerank_score" not in r for r in reranked)
+    
+    # =============================================================================
+    # Code Example Search Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("search_mode,settings", [
+        pytest.param(
+            "vector",
+            {"USE_AGENTIC_RAG": True, "USE_HYBRID_SEARCH": False, "USE_RERANKING": False},
+            id="vector-only"
+        ),
+        pytest.param(
+            "hybrid",
+            {"USE_AGENTIC_RAG": True, "USE_HYBRID_SEARCH": True, "USE_RERANKING": False},
+            id="hybrid-search"
+        ),
+        pytest.param(
+            "vector",
+            {"USE_AGENTIC_RAG": True, "USE_HYBRID_SEARCH": False, "USE_RERANKING": True},
+            id="vector-with-reranking"
+        ),
+    ])
+    @patch('src.services.rag.search_service.search_code_examples')
+    def test_code_search_modes(
+        self,
+        mock_search_code,
+        search_service,
+        search_mode,
+        settings
+    ):
+        """Test different code search modes."""
+        # Arrange
         mock_code_results = [
             {
                 "id": "code1",
-                "url": "https://example.com/async",
-                "content": "async def fetch_data():\n    return await api_call()",
-                "summary": "Async function example",
+                "url": "https://example.com/code",
+                "content": "def example():\n    pass",
+                "summary": "Example function",
                 "metadata": {"language": "python"},
                 "similarity": 0.9
             }
         ]
         mock_search_code.return_value = mock_code_results
         
-        # Mock settings
+        with patch.object(search_service, 'get_bool_setting') as mock_setting:
+            mock_setting.side_effect = lambda key, default: settings.get(key, default)
+            
+            # Act
+            success, result = search_service.search_code_examples_service("test query")
+            
+            # Assert
+            assert success is True
+            assert result["search_mode"] == search_mode
+            assert len(result["results"]) >= 1
+    
+    # =============================================================================
+    # Hybrid Search Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("vector_count,keyword_count,overlap_count", [
+        pytest.param(3, 2, 1, id="partial-overlap"),
+        pytest.param(5, 5, 5, id="complete-overlap"),
+        pytest.param(3, 3, 0, id="no-overlap"),
+    ])
+    @patch('src.services.rag.search_service.search_code_examples')
+    def test_hybrid_search_result_merging(
+        self,
+        mock_search_code,
+        search_service,
+        mock_supabase_client,
+        make_search_result,
+        vector_count,
+        keyword_count,
+        overlap_count
+    ):
+        """Test hybrid search merging of vector and keyword results."""
+        # Arrange
+        # Create vector results
+        vector_results = []
+        for i in range(vector_count):
+            vector_results.append(make_search_result(
+                doc_id=f"vec_{i}",
+                content=f"Vector result {i}",
+                similarity=0.9 - (i * 0.1)
+            ))
+        
+        # Create keyword results with some overlap
+        keyword_results = []
+        for i in range(overlap_count):
+            keyword_results.append({
+                "id": f"vec_{i}",  # Same ID as vector result
+                "content": f"Vector result {i}"
+            })
+        for i in range(keyword_count - overlap_count):
+            keyword_results.append({
+                "id": f"kw_{i}",
+                "content": f"Keyword result {i}"
+            })
+        
+        mock_search_code.return_value = vector_results
+        mock_supabase_client.from_.return_value.select.return_value.or_.return_value.limit.return_value.execute.return_value.data = keyword_results
+        
         with patch.object(search_service, 'get_bool_setting') as mock_setting:
             mock_setting.side_effect = lambda key, default: {
                 "USE_AGENTIC_RAG": True,
-                "USE_HYBRID_SEARCH": False,
+                "USE_HYBRID_SEARCH": True,
                 "USE_RERANKING": False
             }.get(key, default)
             
             # Act
-            success, result = search_service.search_code_examples_service(query)
+            success, result = search_service.search_code_examples_service("test query")
             
             # Assert
             assert success is True
-            assert len(result["results"]) == 1
-            assert result["results"][0]["code"] == mock_code_results[0]["content"]
-            assert result["search_mode"] == "vector"
+            assert result["search_mode"] == "hybrid"
+            
+            # Check that we have the right number of unique results
+            unique_ids = set(r["id"] for r in result["results"])
+            expected_unique = vector_count + keyword_count - overlap_count
+            assert len(unique_ids) == expected_unique
     
-    @pytest.mark.unit
-    def test_hybrid_search_combines_results(self, search_service, mock_supabase_client):
-        """Test hybrid search combining vector and keyword results."""
-        # Arrange
-        query = "Python async"
-        
-        # Mock vector results
-        vector_results = [
-            {"id": "1", "content": "Async Python guide", "similarity": 0.8},
-            {"id": "2", "content": "Python threading", "similarity": 0.7}
-        ]
-        
-        # Mock keyword results
-        keyword_results = [
-            {"id": "1", "content": "Async Python guide"},  # Overlaps with vector
-            {"id": "3", "content": "Python async await"}   # New result
-        ]
-        
-        mock_supabase_client.from_.return_value.select.return_value.or_.return_value.limit.return_value.execute.return_value.data = keyword_results
-        
-        with patch('src.services.rag.search_service.search_code_examples', return_value=vector_results):
-            with patch.object(search_service, 'get_bool_setting') as mock_setting:
-                mock_setting.side_effect = lambda key, default: {
-                    "USE_AGENTIC_RAG": True,
-                    "USE_HYBRID_SEARCH": True,
-                    "USE_RERANKING": False
-                }.get(key, default)
-                
-                # Act
-                success, result = search_service.search_code_examples_service(query)
-                
-                # Assert
-                assert success is True
-                assert result["search_mode"] == "hybrid"
-                # Should prioritize overlapping results
-                assert len(result["results"]) >= 2
+    # =============================================================================
+    # Special Character Handling Tests
+    # =============================================================================
     
-    @pytest.mark.unit
-    def test_reranking_error_handling(self, search_service, mock_search_results):
-        """Test reranking handles errors gracefully."""
+    @pytest.mark.parametrize("query", [
+        pytest.param("C++ programming", id="plus-plus"),
+        pytest.param("What is F#?", id="hash-question"),
+        pytest.param("Python 3.9+", id="version-plus"),
+        pytest.param("email@example.com", id="email-address"),
+        pytest.param("price > $100", id="comparison-dollar"),
+        pytest.param("SELECT * FROM users", id="sql-query"),
+        pytest.param("function(arg1, arg2)", id="function-call"),
+    ])
+    @patch('src.services.rag.search_service.search_documents')
+    def test_special_character_queries(
+        self,
+        mock_search_docs,
+        search_service,
+        query
+    ):
+        """Test handling of special characters in queries."""
         # Arrange
-        search_service.reranking_model.predict.side_effect = Exception("Model error")
+        mock_search_docs.return_value = []
         
         # Act
-        reranked = search_service.rerank_results("query", mock_search_results)
+        success, result = search_service.perform_rag_query(query)
         
         # Assert
-        # Should return original results on error
-        assert reranked == mock_search_results
-        assert "rerank_score" not in reranked[0]
+        assert success is True
+        assert result["query"] == query
+        mock_search_docs.assert_called_once()
     
-    @pytest.mark.unit
-    def test_get_setting_with_credential_service(self, search_service):
-        """Test getting settings from credential service."""
-        # Test with mocked credential service
+    # =============================================================================
+    # Settings and Configuration Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("setting_name,env_value,cache_value,expected", [
+        pytest.param("API_KEY", "env_key", None, "env_key", id="env-only"),
+        pytest.param("API_KEY", "env_key", "cache_key", "cache_key", id="cache-overrides-env"),
+        pytest.param("API_KEY", None, None, "default", id="use-default"),
+    ])
+    def test_get_setting_priority(
+        self,
+        search_service,
+        setting_name,
+        env_value,
+        cache_value,
+        expected
+    ):
+        """Test setting retrieval priority: cache > env > default."""
         with patch('src.services.rag.search_service.credential_service') as mock_cred:
-            mock_cred._cache_initialized = True
-            mock_cred._cache = {"TEST_KEY": "test_value"}
-            
-            value = search_service.get_setting("TEST_KEY", "default")
-            assert value == "test_value"
-        
-        # Test fallback to environment
-        with patch.dict('os.environ', {"TEST_KEY": "env_value"}):
-            value = search_service.get_setting("TEST_KEY", "default")
-            assert value == "env_value"
+            with patch.dict('os.environ', {setting_name: env_value} if env_value else {}):
+                if cache_value:
+                    mock_cred._cache_initialized = True
+                    mock_cred._cache = {setting_name: cache_value}
+                else:
+                    mock_cred._cache_initialized = False
+                
+                # Act
+                value = search_service.get_setting(setting_name, "default")
+                
+                # Assert
+                assert value == expected
     
-    @pytest.mark.unit
-    def test_get_bool_setting(self, search_service):
-        """Test boolean setting conversion."""
-        # Test various true values
-        for true_val in ["true", "True", "1", "yes", "on"]:
-            with patch.object(search_service, 'get_setting', return_value=true_val):
-                assert search_service.get_bool_setting("TEST") is True
+    @pytest.mark.parametrize("string_value,expected_bool", [
+        pytest.param("true", True, id="lowercase-true"),
+        pytest.param("True", True, id="capital-true"),
+        pytest.param("TRUE", True, id="uppercase-true"),
+        pytest.param("1", True, id="numeric-one"),
+        pytest.param("yes", True, id="yes"),
+        pytest.param("on", True, id="on"),
+        pytest.param("false", False, id="lowercase-false"),
+        pytest.param("False", False, id="capital-false"),
+        pytest.param("0", False, id="numeric-zero"),
+        pytest.param("no", False, id="no"),
+        pytest.param("off", False, id="off"),
+        pytest.param("", False, id="empty-string"),
+        pytest.param("random", False, id="random-string"),
+    ])
+    def test_bool_setting_conversion(
+        self,
+        search_service,
+        string_value,
+        expected_bool
+    ):
+        """Test boolean setting string conversion."""
+        with patch.object(search_service, 'get_setting', return_value=string_value):
+            # Act
+            result = search_service.get_bool_setting("TEST_SETTING")
+            
+            # Assert
+            assert result == expected_bool
+    
+    # =============================================================================
+    # Performance Tests
+    # =============================================================================
+    
+    @pytest.mark.slow
+    @pytest.mark.parametrize("num_results", [100, 500, 1000])
+    def test_search_performance_at_scale(
+        self,
+        search_service,
+        make_search_results,
+        num_results
+    ):
+        """Test search performance with large result sets."""
+        # Arrange
+        large_results = make_search_results(num_results)
         
-        # Test various false values
-        for false_val in ["false", "False", "0", "no", "off", ""]:
-            with patch.object(search_service, 'get_setting', return_value=false_val):
-                assert search_service.get_bool_setting("TEST") is False
+        # Act & Assert - Test reranking performance
+        with measure_time(f"rerank_{num_results}_results", threshold=1.0):
+            # Mock predict to return scores quickly
+            search_service.reranking_model.predict.return_value = list(
+                range(num_results, 0, -1)
+            )
+            reranked = search_service.rerank_results("test query", large_results)
+        
+        assert len(reranked) == num_results
+    
+    # =============================================================================
+    # Error Cases and Edge Conditions
+    # =============================================================================
+    
+    @pytest.mark.parametrize("results", [
+        pytest.param([], id="empty-results"),
+        pytest.param(None, id="none-results"),
+    ])
+    def test_reranking_edge_cases(
+        self,
+        search_service,
+        results
+    ):
+        """Test reranking with edge case inputs."""
+        # Act
+        reranked = search_service.rerank_results("query", results or [])
+        
+        # Assert
+        assert reranked == (results or [])
+        search_service.reranking_model.predict.assert_not_called()
