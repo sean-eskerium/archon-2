@@ -1,32 +1,78 @@
 [run]
+branch = True
+parallel = True
 source = src
+source_pkgs = src
+concurrency = multiprocessing,thread,greenlet
+context = "{context}"
 omit = 
     */tests/*
     */test_*
+    */migrations/*
     */__pycache__/*
     */venv/*
-    */.venv/*
+    */env/*
     */site-packages/*
-    */migrations/*
-    src/main.py
-    src/startup.py
+    */dist-packages/*
+    # Performance test exclusions
+    */performance/*
+    */benchmark/*
+    */load_test/*
 
 [report]
+precision = 2
+show_missing = True
+skip_covered = True
+skip_empty = True
+sort = Cover
 exclude_lines =
+    # Standard exclusions
     pragma: no cover
     def __repr__
-    if self.debug:
-    if settings.DEBUG
     raise AssertionError
     raise NotImplementedError
-    if 0:
     if __name__ == .__main__.:
     if TYPE_CHECKING:
-    class .*\bProtocol\):
-    @(abc\.)?abstractmethod
+    @abstractmethod
+    @abc.abstractmethod
+    
+    # Defensive programming
+    if 0:
+    if False:
+    
+    # Debug-only code
+    if DEBUG:
+    if debug:
+    
+    # Testing code
+    def test_
+    class Test
+    
+    # Optional dependencies
+    except ImportError:
+    except ModuleNotFoundError:
 
 [html]
 directory = htmlcov
+title = Archon Test Coverage Report
+show_contexts = True
 
 [xml]
 output = coverage.xml
+
+[json]
+output = coverage.json
+pretty_print = True
+show_contexts = True
+
+[paths]
+source =
+    src/
+    */site-packages/
+
+[context]
+# Context markers for different test types
+unit = */unit/*
+integration = */integration/*
+e2e = */e2e/*
+performance = */performance/*

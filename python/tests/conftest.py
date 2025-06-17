@@ -1,228 +1,407 @@
-import sys, os
+"""Root conftest.py - Shared fixtures and configuration for all tests."""
+
+import asyncio
+import os
+import sys
+import warnings
+from datetime import datetime
+from pathlib import Path
+from typing import Any, AsyncGenerator, Dict, Generator, List, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
 import pytest_asyncio
-from httpx import AsyncClient
-from unittest.mock import AsyncMock, Mock, MagicMock
-from datetime import datetime
-import asyncio
-from typing import Dict, Any, AsyncGenerator
+from _pytest.fixtures import SubRequest
 
-# Add src folder to path
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC_DIR = os.path.join(BASE_DIR, 'src')
-sys.path.insert(0, SRC_DIR)
+# Add src to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
-# Import the FastAPI application from the current codebase
-# Use the package path so relative imports inside the module work
-from src.main import app
+# Import fixtures from fixtures package
+from tests.fixtures.mock_data import *
+from tests.fixtures.test_helpers import *
 
-# Set test environment
-os.environ["TESTING"] = "true"
-os.environ["SUPABASE_URL"] = "http://test.supabase.co"
-os.environ["SUPABASE_ANON_KEY"] = "test-anon-key"
-os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "test-service-key"
+# Suppress warnings during tests
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=PendingDeprecationWarning)
 
-@pytest_asyncio.fixture
-async def async_client():
-    """Async client for testing FastAPI endpoints"""
-    from httpx import ASGITransport
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as ac:
-        yield ac
 
-@pytest.fixture 
-def sync_client():
-    """Sync client for testing non-async endpoints"""
-    from fastapi.testclient import TestClient
-    with TestClient(app) as tc:
-        yield tc
+# =============================================================================
+# Session-scoped fixtures (shared across all tests)
+# =============================================================================
 
-# Database Fixtures
-@pytest.fixture
-def mock_supabase_client():
-    """Mock Supabase client for database operations"""
-    mock = MagicMock()
-    
-    # Mock table methods
-    mock.table = MagicMock(return_value=mock)
-    mock.select = MagicMock(return_value=mock)
-    mock.insert = MagicMock(return_value=mock)
-    mock.update = MagicMock(return_value=mock)
-    mock.delete = MagicMock(return_value=mock)
-    mock.eq = MagicMock(return_value=mock)
-    mock.neq = MagicMock(return_value=mock)
-    mock.order = MagicMock(return_value=mock)
-    mock.limit = MagicMock(return_value=mock)
-    mock.single = MagicMock(return_value=mock)
-    
-    # Default execute response
-    mock.execute = MagicMock(return_value=MagicMock(data=[], count=0))
-    
-    return mock
-
-@pytest.fixture
-def mock_db_session():
-    """Mock database session for async operations"""
-    session = AsyncMock()
-    session.execute = AsyncMock()
-    session.commit = AsyncMock()
-    session.rollback = AsyncMock()
-    session.close = AsyncMock()
-    return session
-
-# Service Fixtures
-@pytest.fixture
-def mock_credential_service():
-    """Mock credential service"""
-    service = AsyncMock()
-    service.load_credentials = AsyncMock()
-    service.get_credential = AsyncMock(return_value="test-value")
-    service.set_credential = AsyncMock()
-    service.is_initialized = True
-    return service
-
-@pytest.fixture
-def mock_project_service():
-    """Mock project service"""
-    service = AsyncMock()
-    service.create_project = AsyncMock()
-    service.get_project = AsyncMock()
-    service.update_project = AsyncMock()
-    service.delete_project = AsyncMock()
-    service.list_projects = AsyncMock(return_value=[])
-    return service
-
-@pytest.fixture
-def mock_task_service():
-    """Mock task service"""
-    service = AsyncMock()
-    service.create_task = AsyncMock()
-    service.get_task = AsyncMock()
-    service.update_task = AsyncMock()
-    service.delete_task = AsyncMock()
-    service.list_tasks = AsyncMock(return_value=[])
-    return service
-
-@pytest.fixture
-def mock_mcp_session_manager():
-    """Mock MCP session manager"""
-    manager = AsyncMock()
-    manager.create_session = AsyncMock(return_value="test-session-id")
-    manager.get_session = AsyncMock()
-    manager.execute_tool = AsyncMock()
-    manager.close_session = AsyncMock()
-    return manager
-
-# WebSocket Fixtures
-@pytest.fixture
-def mock_websocket():
-    """Mock WebSocket for testing WebSocket endpoints"""
-    ws = AsyncMock()
-    ws.accept = AsyncMock()
-    ws.send_text = AsyncMock()
-    ws.send_json = AsyncMock()
-    ws.receive_text = AsyncMock(return_value='{"type": "test"}')
-    ws.receive_json = AsyncMock(return_value={"type": "test"})
-    ws.close = AsyncMock()
-    return ws
-
-# Sample Data Fixtures
-@pytest.fixture
-def sample_project():
-    """Sample project data for testing"""
-    return {
-        "id": "test-project-id",
-        "title": "Test Project",
-        "description": "Test project description",
-        "status": "active",
-        "pinned": False,
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
-        "metadata": {"test": True}
-    }
-
-@pytest.fixture
-def sample_task():
-    """Sample task data for testing"""
-    return {
-        "id": "test-task-id",
-        "project_id": "test-project-id",
-        "title": "Test Task",
-        "description": "Test task description",
-        "status": "todo",
-        "priority": 1,
-        "assignee": "Archon",
-        "parent_id": None,
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat(),
-        "metadata": {"test": True}
-    }
-
-@pytest.fixture
-def sample_document():
-    """Sample document data for testing"""
-    return {
-        "id": "test-doc-id",
-        "project_id": "test-project-id",
-        "title": "Test Document",
-        "content": "Test document content",
-        "type": "markdown",
-        "metadata": {"test": True},
-        "created_at": datetime.utcnow().isoformat(),
-        "updated_at": datetime.utcnow().isoformat()
-    }
-
-# Environment Fixtures
-@pytest.fixture(autouse=True)
-def reset_environment():
-    """Reset environment variables for each test"""
-    original_env = os.environ.copy()
-    yield
-    os.environ.clear()
-    os.environ.update(original_env)
-
-@pytest.fixture
-def test_env_vars():
-    """Set up test environment variables"""
-    env_vars = {
-        "OPENAI_API_KEY": "test-openai-key",
-        "ANTHROPIC_API_KEY": "test-anthropic-key",
-        "SUPABASE_URL": "http://test.supabase.co",
-        "SUPABASE_ANON_KEY": "test-anon-key",
-        "SUPABASE_SERVICE_ROLE_KEY": "test-service-key"
-    }
-    for key, value in env_vars.items():
-        os.environ[key] = value
-    return env_vars
-
-# Async Utilities
-@pytest.fixture
+@pytest.fixture(scope="session")
 def event_loop():
     """Create an instance of the default event loop for the test session."""
     loop = asyncio.get_event_loop_policy().new_event_loop()
     yield loop
     loop.close()
 
-# Mock External Services
-@pytest.fixture
-def mock_openai_client():
-    """Mock OpenAI client"""
+
+@pytest.fixture(scope="session")
+def app_config() -> Dict[str, Any]:
+    """Session-wide application configuration."""
+    return {
+        "testing": True,
+        "debug": False,
+        "api_version": "v1",
+        "max_retries": 3,
+        "timeout": 30,
+        "base_url": "http://localhost:8000",
+    }
+
+
+@pytest.fixture(scope="session")
+def embedding_model() -> str:
+    """Session-scoped embedding model name."""
+    return "text-embedding-ada-002"
+
+
+@pytest.fixture(scope="session")
+def test_data_dir() -> Path:
+    """Directory containing test data files."""
+    return Path(__file__).parent / "test_data"
+
+
+# =============================================================================
+# Module-scoped fixtures (shared within a test module)
+# =============================================================================
+
+@pytest.fixture(scope="module")
+def mock_openai_client() -> Mock:
+    """Module-scoped mock OpenAI client."""
     client = Mock()
-    client.chat.completions.create = AsyncMock()
-    client.embeddings.create = AsyncMock()
+    client.embeddings = Mock()
+    client.embeddings.create = Mock(return_value=Mock(
+        data=[Mock(embedding=[0.1] * 1536)]
+    ))
     return client
 
-@pytest.fixture
-def mock_anthropic_client():
-    """Mock Anthropic client"""
+
+@pytest.fixture(scope="module")
+def mock_supabase_client() -> Mock:
+    """Module-scoped mock Supabase client."""
     client = Mock()
-    client.messages.create = AsyncMock()
+    
+    # Mock table operations
+    table_mock = Mock()
+    table_mock.select = Mock(return_value=table_mock)
+    table_mock.insert = Mock(return_value=table_mock)
+    table_mock.update = Mock(return_value=table_mock)
+    table_mock.delete = Mock(return_value=table_mock)
+    table_mock.eq = Mock(return_value=table_mock)
+    table_mock.execute = Mock(return_value=Mock(data=[]))
+    
+    client.table = Mock(return_value=table_mock)
+    client.rpc = Mock()
+    
     return client
 
-# Cleanup Fixtures
+
+# =============================================================================
+# Function-scoped fixtures (default scope)
+# =============================================================================
+
+@pytest.fixture
+def mock_config(app_config: Dict[str, Any]) -> Mock:
+    """Mock configuration object."""
+    config = Mock()
+    for key, value in app_config.items():
+        setattr(config, key.upper(), value)
+    config.OPENAI_API_KEY = "test-key"
+    config.SUPABASE_URL = "http://localhost:54321"
+    config.SUPABASE_KEY = "test-key"
+    return config
+
+
+@pytest.fixture
+def mock_request() -> Mock:
+    """Mock FastAPI request object."""
+    request = Mock()
+    request.app = Mock()
+    request.app.state = Mock()
+    request.url = Mock(path="/api/v1/test")
+    request.headers = {"Authorization": "Bearer test-token"}
+    request.query_params = {}
+    return request
+
+
+# =============================================================================
+# Autouse fixtures (automatically applied)
+# =============================================================================
+
 @pytest.fixture(autouse=True)
-async def cleanup_after_test():
-    """Cleanup after each test"""
+def prevent_network_calls(monkeypatch, request):
+    """Prevent accidental network calls in unit tests."""
+    # Skip for integration and e2e tests
+    if "integration" in request.keywords or "e2e" in request.keywords:
+        return
+    
+    def network_error(*args, **kwargs):
+        raise RuntimeError(
+            "Network call attempted in unit test! "
+            "Use mocks or mark test with @pytest.mark.integration"
+        )
+    
+    # Block common network libraries
+    monkeypatch.setattr("requests.get", network_error)
+    monkeypatch.setattr("requests.post", network_error)
+    monkeypatch.setattr("requests.put", network_error)
+    monkeypatch.setattr("requests.delete", network_error)
+    monkeypatch.setattr("aiohttp.ClientSession", network_error)
+    monkeypatch.setattr("httpx.AsyncClient", network_error)
+
+
+@pytest.fixture(autouse=True)
+def reset_singletons():
+    """Reset singleton instances between tests."""
+    # Import here to avoid circular imports
+    from src.services.prompt_service import PromptService
+    
+    # Reset PromptService singleton
+    PromptService._instance = None
+    
     yield
-    # Add any cleanup logic here
-    pass
+    
+    # Cleanup after test
+    PromptService._instance = None
+
+
+@pytest.fixture(autouse=True)
+def clean_environment(monkeypatch):
+    """Ensure clean environment for each test."""
+    # Set test environment
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("TESTING", "true")
+    
+    # Clear any cached environment variables
+    test_env_vars = [
+        "OPENAI_API_KEY",
+        "SUPABASE_URL",
+        "SUPABASE_KEY",
+        "DATABASE_URL",
+    ]
+    
+    for var in test_env_vars:
+        if var in os.environ:
+            monkeypatch.delenv(var, raising=False)
+
+
+# =============================================================================
+# Performance and debugging fixtures
+# =============================================================================
+
+@pytest.fixture
+def memory_tracker():
+    """Track memory usage during test."""
+    import tracemalloc
+    import gc
+    
+    gc.collect()
+    tracemalloc.start()
+    
+    yield
+    
+    current, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    
+    # Alert if > 100MB used
+    if peak > 100 * 1024 * 1024:
+        warnings.warn(
+            f"High memory usage detected: {peak / 1024 / 1024:.1f}MB peak",
+            ResourceWarning
+        )
+
+
+@pytest.fixture
+def benchmark_timer():
+    """Simple benchmark timer for performance tests."""
+    import time
+    
+    times = []
+    
+    class Timer:
+        def __enter__(self):
+            self.start = time.perf_counter()
+            return self
+        
+        def __exit__(self, *args):
+            self.end = time.perf_counter()
+            self.duration = self.end - self.start
+            times.append(self.duration)
+    
+    yield Timer
+    
+    if times:
+        avg_time = sum(times) / len(times)
+        if avg_time > 1.0:  # Alert if average > 1 second
+            warnings.warn(
+                f"Slow test detected: {avg_time:.2f}s average",
+                UserWarning
+            )
+
+
+# =============================================================================
+# Factory fixtures
+# =============================================================================
+
+@pytest.fixture
+def make_project():
+    """Factory fixture for creating project data."""
+    created_projects = []
+    
+    def _make_project(name: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        project_id = f"proj_{len(created_projects)}"
+        project = {
+            "id": project_id,
+            "name": name or f"Project {len(created_projects)}",
+            "description": kwargs.get("description", "Test project"),
+            "metadata": kwargs.get("metadata", {}),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+        }
+        project.update(kwargs)
+        created_projects.append(project)
+        return project
+    
+    yield _make_project
+    
+    # Cleanup tracking
+    if created_projects:
+        print(f"Created {len(created_projects)} test projects")
+
+
+@pytest.fixture
+def make_task():
+    """Factory fixture for creating task data."""
+    created_tasks = []
+    
+    def _make_task(title: Optional[str] = None, project_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        task_id = f"task_{len(created_tasks)}"
+        task = {
+            "id": task_id,
+            "project_id": project_id or "proj_default",
+            "title": title or f"Task {len(created_tasks)}",
+            "description": kwargs.get("description", ""),
+            "status": kwargs.get("status", "todo"),
+            "priority": kwargs.get("priority", "medium"),
+            "assignee": kwargs.get("assignee"),
+            "due_date": kwargs.get("due_date"),
+            "labels": kwargs.get("labels", []),
+            "created_at": datetime.now().isoformat(),
+            "updated_at": datetime.now().isoformat(),
+        }
+        task.update(kwargs)
+        created_tasks.append(task)
+        return task
+    
+    yield _make_task
+    
+    # Cleanup tracking
+    if created_tasks:
+        print(f"Created {len(created_tasks)} test tasks")
+
+
+@pytest.fixture
+def make_document():
+    """Factory fixture for creating document data."""
+    created_documents = []
+    
+    def _make_document(content: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        doc_id = f"doc_{len(created_documents)}"
+        document = {
+            "id": doc_id,
+            "content": content or f"Document content {len(created_documents)}",
+            "metadata": kwargs.get("metadata", {}),
+            "embeddings": kwargs.get("embeddings"),
+            "chunk_index": kwargs.get("chunk_index", 0),
+            "created_at": datetime.now().isoformat(),
+        }
+        document.update(kwargs)
+        created_documents.append(document)
+        return document
+    
+    yield _make_document
+    
+    # Cleanup tracking
+    if created_documents:
+        print(f"Created {len(created_documents)} test documents")
+
+
+# =============================================================================
+# Async fixtures
+# =============================================================================
+
+@pytest_asyncio.fixture
+async def async_mock_client() -> AsyncMock:
+    """Async mock client for testing."""
+    client = AsyncMock()
+    client.connect = AsyncMock()
+    client.disconnect = AsyncMock()
+    client.send = AsyncMock()
+    client.receive = AsyncMock(return_value={"type": "test", "data": {}})
+    return client
+
+
+# =============================================================================
+# Transport fixtures (parametrized)
+# =============================================================================
+
+@pytest.fixture(params=[
+    pytest.param({"type": "SSE", "url": "http://localhost:8080/sse"}, id="sse"),
+    pytest.param({"type": "WebSocket", "url": "ws://localhost:8080/ws"}, id="websocket"),
+])
+def transport_config(request) -> Dict[str, str]:
+    """Parametrized transport configurations."""
+    return request.param
+
+
+# =============================================================================
+# Test data fixtures
+# =============================================================================
+
+@pytest.fixture
+def sample_messages() -> List[Dict[str, Any]]:
+    """Sample chat messages for testing."""
+    return [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "Hi! How can I help you?"},
+        {"role": "user", "content": "Tell me about RAG"},
+    ]
+
+
+@pytest.fixture
+def sample_search_results() -> List[Dict[str, Any]]:
+    """Sample search results for testing."""
+    return [
+        {
+            "content": "RAG combines retrieval and generation",
+            "metadata": {"source": "doc1.pdf", "page": 1},
+            "score": 0.95,
+        },
+        {
+            "content": "Retrieval Augmented Generation improves accuracy",
+            "metadata": {"source": "doc2.pdf", "page": 5},
+            "score": 0.87,
+        },
+    ]
+
+
+# =============================================================================
+# Marker-specific fixtures
+# =============================================================================
+
+@pytest.fixture
+def requires_openai(monkeypatch):
+    """Fixture for tests requiring OpenAI API."""
+    if not os.getenv("OPENAI_API_KEY"):
+        pytest.skip("OpenAI API key not available")
+    monkeypatch.setenv("OPENAI_API_KEY", os.getenv("OPENAI_API_KEY"))
+
+
+@pytest.fixture
+def requires_supabase(monkeypatch):
+    """Fixture for tests requiring Supabase."""
+    if not os.getenv("SUPABASE_URL") or not os.getenv("SUPABASE_KEY"):
+        pytest.skip("Supabase credentials not available")
+    monkeypatch.setenv("SUPABASE_URL", os.getenv("SUPABASE_URL"))
+    monkeypatch.setenv("SUPABASE_KEY", os.getenv("SUPABASE_KEY"))
