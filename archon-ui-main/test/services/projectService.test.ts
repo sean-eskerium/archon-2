@@ -1,120 +1,222 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { projectService } from '@/services/projectService'
-import { api } from '@/services/api'
 
-// Mock dependencies
-vi.mock('@/services/api')
-vi.mock('@/services/websocketService', () => ({
-  websocketService: {
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    subscribe: vi.fn(),
-    send: vi.fn(),
-  }
+// Mock fetch globally
+(globalThis as any).fetch = vi.fn()
+
+// Mock WebSocket globally 
+(globalThis as any).WebSocket = vi.fn().mockImplementation(() => ({
+  readyState: 1,
+  onopen: null,
+  onmessage: null,
+  onclose: null,
+  onerror: null,
+  close: vi.fn(),
+  send: vi.fn()
 }))
 
 describe('projectService', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.mocked((globalThis as any).fetch).mockReset()
   })
 
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  // test_project_service_creates_project_with_websocket
-  it('should create project and setup WebSocket subscription', async () => {
-    // TODO: Mock API response for project creation
-    // TODO: Verify WebSocket subscription is set up
-    // TODO: Check returned project data
-    expect(true).toBe(true)
+  describe('Project Operations', () => {
+    it('should create project successfully', async () => {
+      const createRequest = {
+        title: 'New Project',
+        description: 'New project description',
+        icon: '🚀',
+        color: 'green',
+        pinned: false
+      }
+
+      const mockResponse = { 
+        id: 'new-project-123',
+        ...createRequest,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
+      }
+      
+      vi.mocked((globalThis as any).fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockResponse
+      } as Response)
+
+      const result = await projectService.createProject(createRequest as any)
+
+      expect((globalThis as any).fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects'),
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' }
+        })
+      )
+
+      expect(result).toMatchObject({
+        id: 'new-project-123',
+        title: 'New Project',
+        progress: 0
+      })
+    })
+
+    it('should list projects', async () => {
+      const mockProjects = [
+        { id: 'project-1', title: 'Project 1', pinned: false },
+        { id: 'project-2', title: 'Project 2', pinned: true }
+      ]
+      
+      vi.mocked((globalThis as any).fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockProjects
+      } as Response)
+
+      const result = await projectService.listProjects()
+
+      expect((globalThis as any).fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects'),
+        expect.any(Object)
+      )
+
+      expect(result).toHaveLength(2)
+      expect(result[0]).toHaveProperty('pinned', false)
+      expect(result[1]).toHaveProperty('pinned', true)
+    })
+
+    it('should update project', async () => {
+      const updates = { title: 'Updated Title', pinned: true }
+      const mockUpdatedProject = { 
+        id: 'project-123',
+        ...updates,
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
+      }
+      
+      vi.mocked((globalThis as any).fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockUpdatedProject
+      } as Response)
+
+      const result = await projectService.updateProject('project-123', updates as any)
+
+      expect((globalThis as any).fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects/project-123'),
+        expect.objectContaining({
+          method: 'PUT',
+          body: JSON.stringify(updates)
+        })
+      )
+
+      expect(result.title).toBe('Updated Title')
+      expect(result.pinned).toBe(true)
+    })
+
+    it('should delete project', async () => {
+      vi.mocked((globalThis as any).fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({})
+      } as Response)
+
+      await projectService.deleteProject('project-123')
+
+      expect((globalThis as any).fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/projects/project-123'),
+        expect.objectContaining({ method: 'DELETE' })
+      )
+    })
   })
 
-  // test_project_service_lists_projects_with_pagination
-  it('should list projects with proper pagination parameters', async () => {
-    // TODO: Test different page sizes
-    // TODO: Verify pagination params sent to API
-    // TODO: Check response transformation
-    expect(true).toBe(true)
+  describe('Error Handling', () => {
+    it('should handle 404 errors', async () => {
+      vi.mocked((globalThis as any).fetch).mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        json: async () => ({ error: 'Project not found' })
+      } as Response)
+
+      await expect(projectService.getProject('non-existent')).rejects.toThrow()
+    })
+
+    it('should handle network errors', async () => {
+      vi.mocked((globalThis as any).fetch).mockRejectedValueOnce(new Error('Network error'))
+
+      await expect(projectService.listProjects()).rejects.toThrow('Network error')
+    })
   })
 
-  // test_project_service_updates_project_details
-  it('should update project details and handle response', async () => {
-    // TODO: Test partial updates
-    // TODO: Verify API call with correct data
-    // TODO: Check optimistic updates
-    expect(true).toBe(true)
+  describe('Task Operations', () => {
+    it('should create task', async () => {
+      const createRequest = {
+        project_id: 'project-123',
+        title: 'New Task',
+        description: 'Task description',
+        priority: 'high',
+        assignee: 'User'
+      }
+
+      const mockTask = { 
+        id: 'task-123',
+        ...createRequest,
+        status: 'todo',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
+      }
+
+      vi.mocked((globalThis as any).fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => mockTask
+      } as Response)
+
+      const result = await projectService.createTask(createRequest as any)
+
+      expect((globalThis as any).fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/tasks'),
+        expect.objectContaining({
+          method: 'POST'
+        })
+      )
+
+      expect(result).toHaveProperty('id', 'task-123')
+      expect(result).toHaveProperty('uiStatus')
+    })
+
+    it('should update task status', async () => {
+      const updatedTask = {
+        id: 'task-123',
+        status: 'doing',
+        created_at: '2024-01-01T00:00:00Z',
+        updated_at: '2024-01-01T00:00:00Z'
+      }
+      
+      vi.mocked((globalThis as any).fetch).mockResolvedValueOnce({
+        ok: true,
+        json: async () => updatedTask
+      } as Response)
+
+      const result = await projectService.updateTaskStatus('task-123', 'doing')
+
+      expect((globalThis as any).fetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/tasks/task-123?status=doing'),
+        expect.objectContaining({ method: 'PUT' })
+      )
+
+      expect(result.status).toBe('doing')
+    })
   })
 
-  // test_project_service_deletes_project_confirms_first
-  it('should show confirmation before deleting project', async () => {
-    // TODO: Mock confirmation dialog
-    // TODO: Test cancellation flow
-    // TODO: Verify delete API call on confirmation
-    expect(true).toBe(true)
-  })
+  describe('WebSocket Integration', () => {
+    it('should initialize WebSocket on subscription', () => {
+      const unsubscribe = projectService.subscribeToProjectUpdates('project-123', vi.fn())
 
-  // test_project_service_handles_api_errors
-  it('should handle various API errors gracefully', async () => {
-    // TODO: Test 404 errors
-    // TODO: Test network errors
-    // TODO: Test validation errors
-    expect(true).toBe(true)
-  })
+      expect((globalThis as any).WebSocket).toHaveBeenCalledWith(
+        expect.stringContaining('ws://localhost:8080/ws/project-updates')
+      )
 
-  // test_project_service_caches_project_data
-  it('should cache project data to reduce API calls', async () => {
-    // TODO: Fetch project twice
-    // TODO: Verify only one API call made
-    // TODO: Test cache expiration
-    expect(true).toBe(true)
-  })
-
-  // test_project_service_invalidates_cache_on_update
-  it('should invalidate cache when project is updated', async () => {
-    // TODO: Fetch project to populate cache
-    // TODO: Update project
-    // TODO: Verify cache is cleared
-    expect(true).toBe(true)
-  })
-
-  // test_project_service_filters_projects_by_status
-  it('should filter projects by status correctly', async () => {
-    // TODO: Test active filter
-    // TODO: Test archived filter
-    // TODO: Test all projects
-    expect(true).toBe(true)
-  })
-
-  // test_project_service_sorts_projects_correctly
-  it('should sort projects by different fields', async () => {
-    // TODO: Test sort by created date
-    // TODO: Test sort by title
-    // TODO: Test sort by updated date
-    expect(true).toBe(true)
-  })
-
-  // test_project_service_handles_concurrent_updates
-  it('should handle concurrent updates without conflicts', async () => {
-    // TODO: Simulate multiple updates
-    // TODO: Verify last update wins
-    // TODO: Check no data corruption
-    expect(true).toBe(true)
-  })
-
-  // test_project_service_validates_input_data
-  it('should validate input data before API calls', async () => {
-    // TODO: Test required fields validation
-    // TODO: Test data type validation
-    // TODO: Verify validation errors thrown
-    expect(true).toBe(true)
-  })
-
-  // test_project_service_transforms_api_response
-  it('should transform API response to frontend format', async () => {
-    // TODO: Test date transformation
-    // TODO: Test nested object transformation
-    // TODO: Verify all fields mapped correctly
-    expect(true).toBe(true)
+      unsubscribe()
+    })
   })
 })

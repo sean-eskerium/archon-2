@@ -1,4 +1,4 @@
-class WebSocketService {
+export class WebSocketService {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -97,7 +97,7 @@ export const knowledgeWebSocket = new WebSocketService();
 export const crawlWebSocket = new WebSocketService();
 
 // Task Update WebSocket Service for real-time task updates
-interface TaskUpdateData {
+export interface TaskUpdateData {
   type: 'task_created' | 'task_updated' | 'task_deleted' | 'task_archived' | 'connection_established' | 'initial_tasks' | 'tasks_updated' | 'heartbeat' | 'pong';
   data: any;
   timestamp: string;
@@ -116,7 +116,7 @@ interface TaskUpdateCallbacks {
   onClose?: (event: CloseEvent) => void;
 }
 
-class TaskUpdateService {
+export class TaskUpdateService {
   private ws: WebSocket | null = null;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3;  // Reduced from 5 to 3
