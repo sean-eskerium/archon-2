@@ -1,6 +1,6 @@
 import { credentialsService } from './credentialsService';
 
-export type ScreensaverStyle = 'quantum-flux' | 'neural-network' | 'matrix-rain';
+export type ScreensaverStyle = 'quantum-flux' | 'aurora-glass' | 'ethereal-waves';
 
 interface HealthCheckCallback {
   onDisconnected: () => void;

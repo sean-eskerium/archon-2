@@ -342,8 +342,8 @@ export const FeaturesSection = () => {
                   className="text-xs"
                 >
                   <option value="quantum-flux">Quantum Flux</option>
-                  <option value="neural-network">Neural Network</option>
-                  <option value="matrix-rain">Matrix Rain</option>
+                  <option value="aurora-glass">Aurora Glass</option>
+                  <option value="ethereal-waves">Ethereal Waves</option>
                 </Select>
               </div>
             )}

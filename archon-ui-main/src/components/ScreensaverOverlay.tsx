@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Wifi, WifiOff } from 'lucide-react';
-import { QuantumFluxScreensaver, NeuralNetworkScreensaver, MatrixRainScreensaver } from './animations/ScreensaverAnimations';
+import { QuantumFluxScreensaver, AuroraGlassScreensaver, EtherealWavesScreensaver } from './animations/ScreensaverAnimations';
 import { ScreensaverStyle } from '../services/serverHealthService';
 import { NeonButton } from './ui/NeonButton';
 
@@ -21,10 +21,10 @@ export const ScreensaverOverlay: React.FC<ScreensaverOverlayProps> = ({
 
   const renderScreensaver = () => {
     switch (style) {
-      case 'neural-network':
-        return <NeuralNetworkScreensaver />;
-      case 'matrix-rain':
-        return <MatrixRainScreensaver />;
+      case 'aurora-glass':
+        return <AuroraGlassScreensaver />;
+      case 'ethereal-waves':
+        return <EtherealWavesScreensaver />;
       case 'quantum-flux':
       default:
         return <QuantumFluxScreensaver />;

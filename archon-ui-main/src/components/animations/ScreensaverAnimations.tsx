@@ -79,10 +79,10 @@ export const QuantumFluxScreensaver: React.FC = () => {
 };
 
 /**
- * Neural Network Screensaver
- * Animated connection lines between floating nodes around the logo
+ * Aurora Glass Screensaver
+ * Frosted glass medallion with aurora borealis light show behind it
  */
-export const NeuralNetworkScreensaver: React.FC = () => {
+export const AuroraGlassScreensaver: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -95,62 +95,70 @@ export const NeuralNetworkScreensaver: React.FC = () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    const nodes: Array<{x: number; y: number; vx: number; vy: number; radius: number}> = [];
-    const nodeCount = 50;
+    let time = 0;
 
-    // Initialize nodes
-    for (let i = 0; i < nodeCount; i++) {
-      nodes.push({
-        x: Math.random() * canvas.width,
-        y: Math.random() * canvas.height,
-        vx: (Math.random() - 0.5) * 0.5,
-        vy: (Math.random() - 0.5) * 0.5,
-        radius: Math.random() * 2 + 1,
-      });
-    }
-
-    let animationId: number;
-
-    const animate = () => {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+    const drawAurora = () => {
+      // Create dark background with vignette
+      const gradient = ctx.createRadialGradient(
+        canvas.width / 2, canvas.height / 2, 0,
+        canvas.width / 2, canvas.height / 2, canvas.width / 1.5
+      );
+      gradient.addColorStop(0, 'rgba(0, 0, 0, 0.3)');
+      gradient.addColorStop(1, 'rgba(0, 0, 0, 0.95)');
+      ctx.fillStyle = gradient;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Update and draw nodes
-      nodes.forEach((node, i) => {
-        node.x += node.vx;
-        node.y += node.vy;
+      // Draw aurora waves
+      const colors = [
+        { r: 34, g: 211, b: 238, a: 0.3 },  // Cyan
+        { r: 168, g: 85, b: 247, a: 0.3 },  // Purple
+        { r: 236, g: 72, b: 153, a: 0.3 },  // Pink
+        { r: 59, g: 130, b: 246, a: 0.3 },  // Blue
+        { r: 16, g: 185, b: 129, a: 0.3 },  // Green
+      ];
 
-        // Bounce off edges
-        if (node.x < 0 || node.x > canvas.width) node.vx *= -1;
-        if (node.y < 0 || node.y > canvas.height) node.vy *= -1;
-
-        // Draw node
+      colors.forEach((color, index) => {
         ctx.beginPath();
-        ctx.arc(node.x, node.y, node.radius, 0, Math.PI * 2);
-        ctx.fillStyle = '#22d3ee';
-        ctx.fill();
-
-        // Draw connections
-        nodes.forEach((otherNode, j) => {
-          if (i === j) return;
-          const distance = Math.sqrt(
-            Math.pow(node.x - otherNode.x, 2) + Math.pow(node.y - otherNode.y, 2)
-          );
-          if (distance < 150) {
-            ctx.beginPath();
-            ctx.moveTo(node.x, node.y);
-            ctx.lineTo(otherNode.x, otherNode.y);
-            ctx.strokeStyle = `rgba(34, 211, 238, ${1 - distance / 150})`;
-            ctx.lineWidth = 0.5;
-            ctx.stroke();
+        
+        const waveHeight = 200;
+        const waveOffset = index * 50;
+        const speed = 0.001 + index * 0.0002;
+        
+        for (let x = 0; x <= canvas.width; x += 5) {
+          const y = canvas.height / 2 + 
+            Math.sin(x * 0.003 + time * speed) * waveHeight +
+            Math.sin(x * 0.005 + time * speed * 1.5) * (waveHeight / 2) +
+            waveOffset - 100;
+          
+          if (x === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
           }
-        });
+        }
+        
+        // Create gradient for each wave
+        const waveGradient = ctx.createLinearGradient(0, canvas.height / 2 - 200, 0, canvas.height / 2 + 200);
+        waveGradient.addColorStop(0, `rgba(${color.r}, ${color.g}, ${color.b}, 0)`);
+        waveGradient.addColorStop(0.5, `rgba(${color.r}, ${color.g}, ${color.b}, ${color.a})`);
+        waveGradient.addColorStop(1, `rgba(${color.r}, ${color.g}, ${color.b}, 0)`);
+        
+        ctx.strokeStyle = waveGradient;
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        
+        // Add glow effect
+        ctx.shadowBlur = 30;
+        ctx.shadowColor = `rgba(${color.r}, ${color.g}, ${color.b}, 0.5)`;
+        ctx.stroke();
+        ctx.shadowBlur = 0;
       });
 
-      animationId = requestAnimationFrame(animate);
+      time += 16;
+      requestAnimationFrame(drawAurora);
     };
 
-    animate();
+    drawAurora();
 
     const handleResize = () => {
       canvas.width = window.innerWidth;
@@ -160,7 +168,6 @@ export const NeuralNetworkScreensaver: React.FC = () => {
     window.addEventListener('resize', handleResize);
     
     return () => {
-      cancelAnimationFrame(animationId);
       window.removeEventListener('resize', handleResize);
     };
   }, []);
@@ -169,26 +176,44 @@ export const NeuralNetworkScreensaver: React.FC = () => {
     <div className="relative w-full h-full bg-black overflow-hidden">
       <canvas ref={canvasRef} className="absolute inset-0" />
       
-      {/* Central logo */}
+      {/* Glass medallion with frosted effect */}
       <div className="absolute inset-0 flex items-center justify-center">
-        <img 
-          src="/logo-neon.svg" 
-          alt="Archon" 
-          className="w-40 h-40 z-10 animate-pulse"
-          style={{
-            filter: 'drop-shadow(0 0 40px rgba(34, 211, 238, 0.9)) drop-shadow(0 0 80px rgba(168, 85, 247, 0.7))',
-          }}
-        />
+        <div className="relative">
+          {/* Frosted glass background */}
+          <div 
+            className="absolute inset-0 w-64 h-64 rounded-full"
+            style={{
+              background: 'radial-gradient(circle, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.02) 50%, transparent 100%)',
+              backdropFilter: 'blur(20px)',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: 'inset 0 0 30px rgba(255,255,255,0.05), 0 0 50px rgba(34, 211, 238, 0.2)',
+            }}
+          />
+          
+          {/* Embossed logo */}
+          <div className="relative w-64 h-64 flex items-center justify-center">
+            <img 
+              src="/logo-neon.svg" 
+              alt="Archon" 
+              className="w-40 h-40 z-10"
+              style={{
+                filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.3)) drop-shadow(0 -1px 2px rgba(255,255,255,0.2))',
+                opacity: 0.8,
+                mixBlendMode: 'screen',
+              }}
+            />
+          </div>
+        </div>
       </div>
     </div>
   );
 };
 
 /**
- * Matrix Rain Screensaver
- * Cyberpunk-style falling code with the Archon logo glowing in the center
+ * Ethereal Waves Screensaver
+ * Amorphous, jellyfish-like flowing neon colors
  */
-export const MatrixRainScreensaver: React.FC = () => {
+export const EtherealWavesScreensaver: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -201,44 +226,67 @@ export const MatrixRainScreensaver: React.FC = () => {
     canvas.width = window.innerWidth;
     canvas.height = window.innerHeight;
 
-    const chars = 'ARCHON01アーコン</>{}[]()';
-    const fontSize = 14;
-    const columns = Math.floor(canvas.width / fontSize);
-    const drops: number[] = [];
+    // Ethereal blob properties
+    const blobs = [
+      { x: 0.3, y: 0.5, radius: 150, color: { r: 34, g: 211, b: 238 }, phase: 0 },
+      { x: 0.7, y: 0.4, radius: 120, color: { r: 168, g: 85, b: 247 }, phase: 1 },
+      { x: 0.5, y: 0.7, radius: 100, color: { r: 236, g: 72, b: 153 }, phase: 2 },
+      { x: 0.2, y: 0.3, radius: 130, color: { r: 59, g: 130, b: 246 }, phase: 3 },
+      { x: 0.8, y: 0.6, radius: 110, color: { r: 16, g: 185, b: 129 }, phase: 4 },
+    ];
 
-    for (let i = 0; i < columns; i++) {
-      drops[i] = Math.random() * -100;
-    }
+    let time = 0;
 
-    const draw = () => {
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.05)';
+    const drawEtherealWaves = () => {
+      // Dark background
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle = '#22d3ee';
-      ctx.font = `${fontSize}px monospace`;
-
-      for (let i = 0; i < drops.length; i++) {
-        const text = chars[Math.floor(Math.random() * chars.length)];
-        const x = i * fontSize;
-        const y = drops[i] * fontSize;
-
-        // Gradient effect
-        const gradient = ctx.createLinearGradient(0, y - fontSize * 10, 0, y);
-        gradient.addColorStop(0, 'rgba(34, 211, 238, 0)');
-        gradient.addColorStop(0.5, 'rgba(34, 211, 238, 0.5)');
-        gradient.addColorStop(1, 'rgba(34, 211, 238, 1)');
-        ctx.fillStyle = gradient;
-
-        ctx.fillText(text, x, y);
-
-        if (y > canvas.height && Math.random() > 0.975) {
-          drops[i] = 0;
+      blobs.forEach((blob, index) => {
+        const centerX = blob.x * canvas.width + Math.sin(time * 0.0005 + blob.phase) * 100;
+        const centerY = blob.y * canvas.height + Math.cos(time * 0.0007 + blob.phase) * 80;
+        
+        // Create morphing shape using multiple sine waves
+        ctx.beginPath();
+        for (let angle = 0; angle <= Math.PI * 2; angle += 0.05) {
+          const radiusVariation = 
+            Math.sin(angle * 3 + time * 0.002 + blob.phase) * 20 +
+            Math.sin(angle * 5 + time * 0.003 + blob.phase * 2) * 15 +
+            Math.sin(angle * 7 + time * 0.001 + blob.phase * 3) * 10;
+          
+          const r = blob.radius + radiusVariation;
+          const x = centerX + Math.cos(angle) * r;
+          const y = centerY + Math.sin(angle) * r;
+          
+          if (angle === 0) {
+            ctx.moveTo(x, y);
+          } else {
+            ctx.lineTo(x, y);
+          }
         }
-        drops[i]++;
-      }
+        ctx.closePath();
+
+        // Create radial gradient for each blob
+        const gradient = ctx.createRadialGradient(centerX, centerY, 0, centerX, centerY, blob.radius);
+        gradient.addColorStop(0, `rgba(${blob.color.r}, ${blob.color.g}, ${blob.color.b}, 0.3)`);
+        gradient.addColorStop(0.5, `rgba(${blob.color.r}, ${blob.color.g}, ${blob.color.b}, 0.1)`);
+        gradient.addColorStop(1, `rgba(${blob.color.r}, ${blob.color.g}, ${blob.color.b}, 0)`);
+
+        ctx.fillStyle = gradient;
+        ctx.fill();
+
+        // Add glow
+        ctx.shadowBlur = 50;
+        ctx.shadowColor = `rgba(${blob.color.r}, ${blob.color.g}, ${blob.color.b}, 0.5)`;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      });
+
+      time += 16;
+      requestAnimationFrame(drawEtherealWaves);
     };
 
-    const interval = setInterval(draw, 33);
+    drawEtherealWaves();
 
     const handleResize = () => {
       canvas.width = window.innerWidth;
@@ -247,7 +295,6 @@ export const MatrixRainScreensaver: React.FC = () => {
 
     window.addEventListener('resize', handleResize);
     return () => {
-      clearInterval(interval);
       window.removeEventListener('resize', handleResize);
     };
   }, []);
@@ -256,7 +303,7 @@ export const MatrixRainScreensaver: React.FC = () => {
     <div className="relative w-full h-full bg-black overflow-hidden">
       <canvas ref={canvasRef} className="absolute inset-0" />
       
-      {/* Central logo with holographic effect */}
+      {/* Central logo with ethereal glow */}
       <div className="absolute inset-0 flex items-center justify-center">
         <div className="relative">
           <img 
@@ -264,38 +311,23 @@ export const MatrixRainScreensaver: React.FC = () => {
             alt="Archon" 
             className="w-48 h-48 z-10"
             style={{
-              filter: 'drop-shadow(0 0 50px rgba(34, 211, 238, 1)) drop-shadow(0 0 100px rgba(168, 85, 247, 0.8))',
-              animation: 'hologram 3s ease-in-out infinite',
-            }}
-          />
-          {/* Holographic scan line */}
-          <div 
-            className="absolute inset-0 bg-gradient-to-b from-transparent via-cyan-400/20 to-transparent"
-            style={{
-              animation: 'scan 2s linear infinite',
-              pointerEvents: 'none'
+              filter: 'drop-shadow(0 0 30px rgba(255,255,255,0.3))',
+              opacity: 0.6,
+              animation: 'etherealFloat 8s ease-in-out infinite',
             }}
           />
         </div>
       </div>
 
       <style jsx>{`
-        @keyframes hologram {
+        @keyframes etherealFloat {
           0%, 100% {
-            opacity: 1;
-            transform: rotateY(0deg) scale(1);
+            transform: translateY(0) scale(1);
+            opacity: 0.6;
           }
           50% {
+            transform: translateY(-20px) scale(1.05);
             opacity: 0.8;
-            transform: rotateY(10deg) scale(1.02);
-          }
-        }
-        @keyframes scan {
-          0% {
-            transform: translateY(-100%);
-          }
-          100% {
-            transform: translateY(100%);
           }
         }
       `}</style>
