@@ -1,143 +1,504 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach, test } from 'vitest'
 import { agentChatService } from '@/services/agentChatService'
+import { MockWebSocket } from '../setup'
 
-// Mock dependencies
-vi.mock('@/services/api')
-vi.mock('@/services/websocketService', () => ({
-  websocketService: {
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    subscribe: vi.fn(),
-    send: vi.fn(),
-  }
-}))
+// Mock fetch globally
+(globalThis as any).fetch = vi.fn()
+
+interface ChatMessage {
+  id: string;
+  content: string;
+  sender: 'user' | 'agent';
+  timestamp: Date;
+  agent_type?: string;
+}
+
+interface WebSocketMessage {
+  type: 'message' | 'typing' | 'ping' | 'stream_chunk' | 'stream_complete' | 'connection_confirmed' | 'heartbeat' | 'pong';
+  data?: any;
+  content?: string;
+  session_id?: string;
+  is_typing?: boolean;
+}
 
 describe('agentChatService', () => {
+  let mockFetch: ReturnType<typeof vi.fn>
+  let activeWebSockets: MockWebSocket[] = []
+
   beforeEach(() => {
     vi.clearAllMocks()
+    mockFetch = vi.mocked((globalThis as any).fetch)
+    activeWebSockets = []
+    
+    // Track created WebSockets
+    const OriginalMockWebSocket = MockWebSocket
+    ;(globalThis as any).WebSocket = class extends OriginalMockWebSocket {
+      constructor(url: string) {
+        super(url)
+        activeWebSockets.push(this)
+      }
+    }
   })
 
   afterEach(() => {
+    // Close all active WebSockets
+    activeWebSockets.forEach(ws => {
+      if (ws.readyState === MockWebSocket.OPEN) {
+        ws.close()
+      }
+    })
     vi.restoreAllMocks()
   })
 
-  // test_agent_chat_creates_session
-  it('should create a new chat session with agent', async () => {
-    // TODO: Mock session creation API
-    // TODO: Verify session ID returned
-    // TODO: Check WebSocket connection initiated
-    expect(true).toBe(true)
+  describe('Session Management', () => {
+    it('should create a new chat session with agent', async () => {
+      const mockSessionId = 'session-123'
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ session_id: mockSessionId })
+      })
+
+      const result = await agentChatService.createSession('project-123', 'docs')
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/agent-chat/sessions'),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            project_id: 'project-123',
+            agent_type: 'docs'
+          })
+        }
+      )
+      expect(result.session_id).toBe(mockSessionId)
+    })
+
+    it('should retrieve session details with messages', async () => {
+      const mockSession = {
+        session_id: 'session-123',
+        project_id: 'project-123',
+        messages: [
+          {
+            id: 'msg-1',
+            content: 'Hello',
+            sender: 'user',
+            timestamp: '2024-01-01T00:00:00Z'
+          }
+        ],
+        agent_type: 'docs',
+        created_at: '2024-01-01T00:00:00Z'
+      }
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ session: mockSession })
+      })
+
+      const session = await agentChatService.getSession('session-123')
+
+      expect(session.messages[0].timestamp).toBeInstanceOf(Date)
+      expect(session.created_at).toBeInstanceOf(Date)
+    })
+
+    test.each([
+      { status: 400, statusText: 'Bad Request' },
+      { status: 404, statusText: 'Not Found' },
+      { status: 500, statusText: 'Internal Server Error' }
+    ])('should handle $status errors when creating session', async ({ status, statusText }: { status: number, statusText: string }) => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status,
+        statusText
+      })
+
+      await expect(agentChatService.createSession()).rejects.toThrow(
+        `Failed to create chat session: ${statusText}`
+      )
+    })
   })
 
-  // test_agent_chat_sends_messages_via_websocket
-  it('should send messages through WebSocket connection', async () => {
-    // TODO: Create session first
-    // TODO: Send message via WebSocket
-    // TODO: Verify message format and content
-    expect(true).toBe(true)
+  describe('WebSocket Communication', () => {
+    it('should establish WebSocket connection and handle messages', async () => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+
+      agentChatService.connectWebSocket(sessionId, onMessage, onTyping)
+
+      // Wait for WebSocket to be created
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      
+      const ws = activeWebSockets[0]
+      
+      // Simulate connection opening
+      ws.readyState = MockWebSocket.OPEN
+      ws.onopen?.(new Event('open'))
+
+      // Test message handling
+      const chatMessage: ChatMessage = {
+        id: 'msg-1',
+        content: 'Hello from agent',
+        sender: 'agent',
+        timestamp: new Date()
+      }
+
+      const wsMessage: WebSocketMessage = {
+        type: 'message',
+        data: chatMessage
+      }
+
+      ws.onmessage?.(new MessageEvent('message', {
+        data: JSON.stringify(wsMessage)
+      }))
+
+      expect(onMessage).toHaveBeenCalledWith(chatMessage)
+    })
+
+    it('should handle streaming responses with chunks', async () => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+      const onStreamChunk = vi.fn()
+      const onStreamComplete = vi.fn()
+
+      agentChatService.connectWebSocket(
+        sessionId, 
+        onMessage, 
+        onTyping,
+        onStreamChunk,
+        onStreamComplete
+      )
+
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      const ws = activeWebSockets[0]
+      ws.readyState = MockWebSocket.OPEN
+
+      // Send stream chunks
+      const chunks = ['Hello', ' from', ' streaming', ' agent']
+      
+      for (const chunk of chunks) {
+        ws.onmessage?.(new MessageEvent('message', {
+          data: JSON.stringify({
+            type: 'stream_chunk',
+            content: chunk
+          })
+        }))
+      }
+
+      // Send stream complete
+      ws.onmessage?.(new MessageEvent('message', {
+        data: JSON.stringify({ type: 'stream_complete' })
+      }))
+
+      expect(onStreamChunk).toHaveBeenCalledTimes(chunks.length)
+      chunks.forEach((chunk, index) => {
+        expect(onStreamChunk).toHaveBeenNthCalledWith(index + 1, chunk)
+      })
+      expect(onStreamComplete).toHaveBeenCalledOnce()
+    })
+
+    it('should handle typing indicators', async () => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+
+      agentChatService.connectWebSocket(sessionId, onMessage, onTyping)
+
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      const ws = activeWebSockets[0]
+      ws.readyState = MockWebSocket.OPEN
+
+      // Test typing start
+      ws.onmessage?.(new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'typing',
+          is_typing: true
+        })
+      }))
+
+      expect(onTyping).toHaveBeenCalledWith(true)
+
+      // Test typing stop
+      ws.onmessage?.(new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'typing',
+          is_typing: false
+        })
+      }))
+
+      expect(onTyping).toHaveBeenCalledWith(false)
+    })
+
+    it('should handle heartbeat/pong mechanism', async () => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+
+      agentChatService.connectWebSocket(sessionId, onMessage, onTyping)
+
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      const ws = activeWebSockets[0]
+      ws.readyState = MockWebSocket.OPEN
+
+      // Simulate heartbeat from server
+      ws.onmessage?.(new MessageEvent('message', {
+        data: JSON.stringify({
+          type: 'heartbeat',
+          session_id: sessionId
+        })
+      }))
+
+      // Should respond with ping
+      expect(ws.send).toHaveBeenCalledWith('ping')
+    })
   })
 
-  // test_agent_chat_receives_streaming_responses
-  it('should receive and process streaming responses', async () => {
-    // TODO: Mock WebSocket message events
-    // TODO: Verify streaming updates handled
-    // TODO: Check message assembly
-    expect(true).toBe(true)
+  describe('Message Sending', () => {
+    it('should send messages via REST API', async () => {
+      const sessionId = 'session-123'
+      const message = 'Hello agent'
+      const context = { project_id: 'project-123' }
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({})
+      })
+
+      await agentChatService.sendMessage(sessionId, message, context)
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/agent-chat/sessions/${sessionId}/messages`),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, context })
+        }
+      )
+    })
+
+    it('should handle send message errors', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        statusText: 'Rate Limited'
+      })
+
+      await expect(
+        agentChatService.sendMessage('session-123', 'Hello')
+      ).rejects.toThrow('Failed to send message: Rate Limited')
+    })
   })
 
-  // test_agent_chat_handles_tool_calls
-  it('should handle tool call requests and responses', async () => {
-    // TODO: Mock tool call message
-    // TODO: Verify tool execution request
-    // TODO: Check tool result handling
-    expect(true).toBe(true)
+  describe('Reconnection Logic', () => {
+    it('should attempt reconnection on unexpected disconnect', async () => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+      const onClose = vi.fn()
+
+      // Mock server status check
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 'online' })
+      })
+
+      agentChatService.connectWebSocket(sessionId, onMessage, onTyping, undefined, undefined, undefined, onClose)
+
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      const ws = activeWebSockets[0]
+      ws.readyState = MockWebSocket.OPEN
+
+      // Simulate abnormal closure
+      ws.readyState = MockWebSocket.CLOSED
+      ws.onclose?.(new CloseEvent('close', { code: 1006, reason: 'Connection lost' }))
+
+      expect(onClose).toHaveBeenCalled()
+
+      // Wait for reconnection attempt
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(2), { timeout: 2000 })
+      
+      const newWs = activeWebSockets[1]
+      expect(newWs.url).toContain(sessionId)
+    })
+
+    it('should stop reconnection after max attempts', async () => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+
+      // Mock server status check to always return online
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 'online' })
+      })
+
+      agentChatService.connectWebSocket(sessionId, onMessage, onTyping)
+
+      // Simulate multiple disconnections
+      for (let i = 0; i < 5; i++) {
+        await vi.waitFor(() => expect(activeWebSockets.length).toBeGreaterThan(i))
+        const ws = activeWebSockets[i]
+        ws.readyState = MockWebSocket.CLOSED
+        ws.onclose?.(new CloseEvent('close', { code: 1006 }))
+        
+        // Allow time for reconnection
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+
+      // After max attempts (3), should not create more connections
+      await new Promise(resolve => setTimeout(resolve, 500))
+      expect(activeWebSockets.length).toBeLessThanOrEqual(4) // Initial + 3 reconnects
+    })
+
+    it('should handle session invalidation (404/403)', async () => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+
+      agentChatService.connectWebSocket(sessionId, onMessage, onTyping)
+
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      const ws = activeWebSockets[0]
+
+      // Mock session verification to return 404
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404
+      })
+
+      // Simulate WebSocket error and immediate close
+      ws.readyState = MockWebSocket.CLOSED
+      ws.onerror?.(new Event('error'))
+
+      // Should attempt to verify session
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining(`/api/agent-chat/sessions/${sessionId}`)
+      ))
+    })
   })
 
-  // test_agent_chat_maintains_conversation_history
-  it('should maintain conversation history correctly', async () => {
-    // TODO: Send multiple messages
-    // TODO: Verify history preserved
-    // TODO: Check message ordering
-    expect(true).toBe(true)
+  describe('Connection State Management', () => {
+    it('should track connection state accurately', () => {
+      const sessionId = 'session-123'
+      
+      expect(agentChatService.isConnected(sessionId)).toBe(false)
+      
+      agentChatService.connectWebSocket(sessionId, vi.fn(), vi.fn())
+      
+      // After connection attempt, should have a WebSocket
+      expect(agentChatService.getConnectionState(sessionId)).toBe(MockWebSocket.CONNECTING)
+    })
+
+    it('should clean up resources on disconnect', async () => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+
+      agentChatService.connectWebSocket(sessionId, onMessage, onTyping)
+      
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      
+      agentChatService.disconnectWebSocket(sessionId)
+      
+      expect(agentChatService.isConnected(sessionId)).toBe(false)
+      expect(agentChatService.getConnectionState(sessionId)).toBe(null)
+    })
+
+    it('should disconnect all sessions', async () => {
+      // Create multiple sessions
+      const sessions = ['session-1', 'session-2', 'session-3']
+      
+      sessions.forEach(sessionId => {
+        agentChatService.connectWebSocket(sessionId, vi.fn(), vi.fn())
+      })
+
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(3))
+      
+      agentChatService.disconnectAll()
+      
+      sessions.forEach(sessionId => {
+        expect(agentChatService.isConnected(sessionId)).toBe(false)
+      })
+    })
   })
 
-  // test_agent_chat_handles_session_timeout
-  it('should handle session timeout gracefully', async () => {
-    // TODO: Simulate session timeout
-    // TODO: Verify reconnection attempt
-    // TODO: Check user notification
-    expect(true).toBe(true)
+  describe('Server Status Monitoring', () => {
+    it('should check server status and notify handlers', async () => {
+      const sessionId = 'session-123'
+      const statusHandler = vi.fn()
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'online' })
+      })
+
+      agentChatService.onStatusChange(sessionId, statusHandler)
+      
+      // Trigger a server status check by attempting connection
+      agentChatService.connectWebSocket(sessionId, vi.fn(), vi.fn())
+      
+      // Simulate connection failure
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      const ws = activeWebSockets[0]
+      ws.readyState = MockWebSocket.CLOSED
+      ws.onclose?.(new CloseEvent('close', { code: 1006 }))
+
+      // Should check server status
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('/api/agent-chat/status'),
+        expect.any(Object)
+      ))
+
+      // Status handler should be called
+      await vi.waitFor(() => expect(statusHandler).toHaveBeenCalled())
+    })
   })
 
-  // test_agent_chat_reconnects_on_disconnect
-  it('should automatically reconnect on disconnect', async () => {
-    // TODO: Simulate WebSocket disconnect
-    // TODO: Verify reconnection with session ID
-    // TODO: Check message queue preserved
-    expect(true).toBe(true)
-  })
+  describe('Error Handling', () => {
+    test.each([
+      { 
+        scenario: 'network error',
+        error: new Event('error'),
+        expectedBehavior: 'should trigger error handler'
+      },
+      {
+        scenario: 'invalid JSON message',
+        message: 'invalid json',
+        expectedBehavior: 'should not crash'
+      },
+      {
+        scenario: 'unknown message type',
+        message: JSON.stringify({ type: 'unknown_type' }),
+        expectedBehavior: 'should log warning'
+      }
+    ])('should handle $scenario gracefully', async ({ error, message }: { error?: Event, message?: string }) => {
+      const sessionId = 'session-123'
+      const onMessage = vi.fn()
+      const onTyping = vi.fn()
+      const onError = vi.fn()
+      const consoleWarn = vi.spyOn(console, 'warn').mockImplementation()
+      const consoleError = vi.spyOn(console, 'error').mockImplementation()
 
-  // test_agent_chat_queues_messages_when_offline
-  it('should queue messages when connection is offline', async () => {
-    // TODO: Disconnect WebSocket
-    // TODO: Send multiple messages
-    // TODO: Verify queue on reconnect
-    expect(true).toBe(true)
-  })
+      agentChatService.connectWebSocket(sessionId, onMessage, onTyping, undefined, undefined, onError)
 
-  // test_agent_chat_handles_rate_limiting
-  it('should handle rate limiting from server', async () => {
-    // TODO: Send many messages quickly
-    // TODO: Verify rate limit error handled
-    // TODO: Check retry behavior
-    expect(true).toBe(true)
-  })
+      await vi.waitFor(() => expect(activeWebSockets.length).toBe(1))
+      const ws = activeWebSockets[0]
 
-  // test_agent_chat_processes_markdown_responses
-  it('should process markdown in agent responses', async () => {
-    // TODO: Mock markdown response
-    // TODO: Verify markdown parsing
-    // TODO: Check code block handling
-    expect(true).toBe(true)
-  })
+      if (error) {
+        ws.onerror?.(error)
+        expect(onError).toHaveBeenCalledWith(error)
+      } else if (message) {
+        ws.onmessage?.(new MessageEvent('message', { data: message }))
+        
+        if (message === 'invalid json') {
+          expect(consoleError).toHaveBeenCalled()
+        } else {
+          expect(consoleWarn).toHaveBeenCalled()
+        }
+      }
 
-  // test_agent_chat_updates_ui_during_streaming
-  it('should update UI progressively during streaming', async () => {
-    // TODO: Mock streaming chunks
-    // TODO: Verify UI updates per chunk
-    // TODO: Check final message state
-    expect(true).toBe(true)
-  })
-
-  // test_agent_chat_handles_error_responses
-  it('should handle various error responses', async () => {
-    // TODO: Test API errors
-    // TODO: Test WebSocket errors
-    // TODO: Test tool execution errors
-    expect(true).toBe(true)
-  })
-
-  // test_agent_chat_cleans_up_on_session_end
-  it('should clean up resources on session end', async () => {
-    // TODO: End chat session
-    // TODO: Verify WebSocket closed
-    // TODO: Check memory cleanup
-    expect(true).toBe(true)
-  })
-
-  // test_agent_chat_supports_multiple_sessions
-  it('should support multiple concurrent sessions', async () => {
-    // TODO: Create multiple sessions
-    // TODO: Verify isolation between sessions
-    // TODO: Check independent message handling
-    expect(true).toBe(true)
-  })
-
-  // test_agent_chat_handles_large_messages
-  it('should handle large messages and responses', async () => {
-    // TODO: Send large message
-    // TODO: Verify chunking if needed
-    // TODO: Check response handling
-    expect(true).toBe(true)
+      consoleWarn.mockRestore()
+      consoleError.mockRestore()
+    })
   })
 })
