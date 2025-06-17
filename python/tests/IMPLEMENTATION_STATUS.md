@@ -3,7 +3,7 @@
 ## Summary
 This document tracks the implementation status of the unit test suite for the Archon Python backend.
 
-**Total Progress: ~248 test cases implemented (73% of planned ~340 cases)**
+**Total Progress: ~264 test cases implemented (78% of planned ~340 cases)**
 
 ## Test Infrastructure (100% Complete)
 - ✅ `pytest.ini` - Complete pytest configuration
@@ -36,7 +36,7 @@ This document tracks the implementation status of the unit test suite for the Ar
 | PromptService | `test_prompt_service.py` | 10 | ✅ Complete |
 | SourceManagementService | `test_source_management_service.py` | 10 | ✅ Complete |
 
-### Standard Priority Services/APIs (Partial - 91 test cases)
+### Standard Priority Services/APIs (Partial - 107 test cases)
 | Component | File | Test Cases | Status |
 |-----------|------|------------|--------|
 | BaseAgent | `test_base_agent.py` | 10 | ✅ Complete |
@@ -49,18 +49,19 @@ This document tracks the implementation status of the unit test suite for the Ar
 | AgentChatAPI | `test_agent_chat_api.py` | 14 | ✅ Complete |
 | MCPClientAPI | `test_mcp_client_api.py` | 13 | ✅ Complete |
 | TestsAPI | `test_tests_api.py` | 12 | ✅ Complete |
+| ProjectModule | `test_project_module.py` | 8 | ✅ Complete |
+| RAGModule | `test_rag_module.py` | 8 | ✅ Complete |
+| Config | `test_config.py` | 8 | ✅ Complete |
+| MCPModels | `test_mcp_models.py` | 10 | ✅ Complete |
 
-### Remaining Unit Tests (Not Started - ~92 test cases)
+### Remaining Unit Tests (Not Started - ~76 test cases)
 | Component | Estimated Cases | Priority |
 |-----------|-----------------|----------|
-| ProjectModule | 8 | Standard |
-| RAGModule | 8 | Standard |
-| MCPModels | 5 | Nice-to-Have |
-| Config | 3 | Nice-to-Have |
+| Models | 5 | Nice-to-Have |
 | LogfireConfig | 3 | Nice-to-Have |
 | Main | 5 | Nice-to-Have |
 | MCPServer | 10 | Standard |
-| Additional API tests | 50 | Standard |
+| Additional API tests | 53 | Standard |
 
 ## Coverage Status
 
@@ -118,7 +119,7 @@ This document tracks the implementation status of the unit test suite for the Ar
 
 ## Next Steps
 
-1. **Complete Remaining Unit Tests** (~92 cases)
+1. **Complete Remaining Unit Tests** (~76 cases)
    - Focus on modules and remaining API endpoints
    - Add tests for configuration and main entry points
 
