@@ -1,216 +1,23 @@
-"""Unit tests for Agent Chat API endpoints."""
+"""Unit tests for Agent Chat API endpoints with enhanced patterns."""
+
 import pytest
-import asyncio
 from unittest.mock import Mock, MagicMock, patch, AsyncMock
-from datetime import datetime
-import uuid
-from fastapi import WebSocket
+from fastapi import HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.testclient import TestClient
-from src.api.agent_chat_api import (
-    router, ChatMessage, ChatRequest, CreateSessionRequest,
-    ChatSession, ChatSessionManager
-)
+from typing import List, Dict, Any, Optional
+import asyncio
+import uuid
+import json
+from datetime import datetime, timedelta
+
+from src.api.agent_chat_api import router
+from tests.fixtures.mock_data import IDGenerator
+from tests.fixtures.test_helpers import assert_fields_equal, measure_time
 
 
-class TestChatSessionManager:
-    """Unit tests for ChatSessionManager."""
-    
-    @pytest.fixture
-    def manager(self):
-        """Create ChatSessionManager instance."""
-        return ChatSessionManager()
-    
-    @pytest.fixture
-    def sample_message(self):
-        """Create sample chat message."""
-        return ChatMessage(
-            id=str(uuid.uuid4()),
-            content="Test message",
-            sender="user",
-            timestamp=datetime.now(),
-            agent_type="docs"
-        )
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_create_session_docs_agent(self, manager):
-        """Test creating a session with docs agent."""
-        session_id = await manager.create_session(project_id="test-project", agent_type="docs")
-        
-        assert session_id in manager.sessions
-        session = manager.sessions[session_id]
-        assert session.project_id == "test-project"
-        assert session.agent_type == "docs"
-        assert len(session.messages) == 1
-        assert "Documentation Assistant" in session.messages[0].content
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_create_session_rag_agent(self, manager):
-        """Test creating a session with RAG agent."""
-        session_id = await manager.create_session(project_id="test-project", agent_type="rag")
-        
-        session = manager.sessions[session_id]
-        assert session.agent_type == "rag"
-        assert "RAG Search Assistant" in session.messages[0].content
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_websocket_management(self, manager):
-        """Test WebSocket connection management."""
-        # Create session
-        session_id = await manager.create_session()
-        
-        # Mock WebSocket
-        ws = MagicMock()
-        ws.send_json = AsyncMock()
-        
-        # Add WebSocket
-        await manager.add_websocket(session_id, ws)
-        assert session_id in manager.websockets
-        assert ws in manager.websockets[session_id]
-        
-        # Remove WebSocket
-        manager.remove_websocket(session_id, ws)
-        assert session_id not in manager.websockets
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_broadcast_message(self, manager, sample_message):
-        """Test broadcasting messages to WebSockets."""
-        session_id = "test-session"
-        
-        # Mock WebSockets
-        ws1 = MagicMock()
-        ws1.send_json = AsyncMock()
-        ws2 = MagicMock()
-        ws2.send_json = AsyncMock(side_effect=Exception("Disconnected"))
-        
-        manager.websockets[session_id] = [ws1, ws2]
-        
-        # Broadcast message
-        await manager.broadcast_message(session_id, sample_message)
-        
-        # Check ws1 received message
-        ws1.send_json.assert_called_once()
-        call_args = ws1.send_json.call_args[0][0]
-        assert call_args["type"] == "message"
-        assert call_args["data"]["content"] == "Test message"
-        
-        # Check ws2 was removed due to error
-        assert ws2 not in manager.websockets.get(session_id, [])
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_broadcast_typing_indicator(self, manager):
-        """Test broadcasting typing indicator."""
-        session_id = "test-session"
-        
-        # Mock WebSocket
-        ws = MagicMock()
-        ws.send_json = AsyncMock()
-        manager.websockets[session_id] = [ws]
-        
-        # Broadcast typing
-        await manager.broadcast_typing(session_id, True)
-        
-        ws.send_json.assert_called_once_with({
-            "type": "typing",
-            "data": {"is_typing": True}
-        })
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    @patch('src.api.agent_chat_api.DocumentAgent')
-    async def test_process_user_message_docs(self, mock_doc_agent_class, manager):
-        """Test processing user message with document agent."""
-        # Setup mock
-        mock_agent = MagicMock()
-        mock_result = MagicMock()
-        mock_result.success = True
-        mock_result.message = "Document created successfully"
-        mock_result.changes_made = ["Created new PRD"]
-        mock_result.content_preview = None
-        
-        mock_agent.run_conversation = AsyncMock(return_value=mock_result)
-        mock_doc_agent_class.return_value = mock_agent
-        
-        # Create session
-        session_id = await manager.create_session(agent_type="docs")
-        
-        # Process message
-        await manager.process_user_message(session_id, "Create a PRD for authentication")
-        
-        # Check messages added
-        session = manager.sessions[session_id]
-        assert len(session.messages) == 3  # Welcome + user + agent response
-        assert session.messages[-1].sender == "agent"
-        assert "Document created successfully" in session.messages[-1].content
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_rate_limiting(self, manager):
-        """Test request rate limiting."""
-        # Set up rate limiting
-        manager._max_concurrent_requests = 1
-        manager._processing_requests = 1  # Already at capacity
-        
-        session_id = await manager.create_session()
-        
-        # Mock broadcast methods
-        manager.broadcast_typing = AsyncMock()
-        manager.broadcast_message = AsyncMock()
-        
-        # Try to process message when at capacity
-        await manager.process_user_message(session_id, "Test message")
-        
-        # Should have been queued
-        assert not manager._request_queue.empty()
-        manager.broadcast_typing.assert_called_with(session_id, True)
-    
-    @pytest.mark.unit
-    def test_response_caching(self, manager):
-        """Test response caching mechanism."""
-        cache_key = "test_key"
-        response = "Cached response"
-        
-        # Cache response
-        manager._cache_response(cache_key, response)
-        
-        # Retrieve cached response
-        cached = manager._get_cached_response(cache_key)
-        assert cached == response
-        
-        # Test cache size limit
-        for i in range(manager._max_cache_size + 10):
-            manager._cache_response(f"key_{i}", f"response_{i}")
-        
-        # Cache should not exceed max size
-        assert len(manager._response_cache) <= manager._max_cache_size
-    
-    @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_queued_request_processing(self, manager):
-        """Test processing of queued requests."""
-        # Setup
-        manager._max_concurrent_requests = 1
-        session_id = await manager.create_session()
-        
-        # Mock the single request processor
-        manager._process_single_request = AsyncMock()
-        
-        # Queue a request
-        await manager._request_queue.put((session_id, "Test message", None))
-        
-        # Process queued requests
-        await manager._process_queued_requests()
-        
-        # Should have processed the queued request
-        manager._process_single_request.assert_called_once()
-        assert manager._request_queue.empty()
-
-
-class TestAgentChatAPIEndpoints:
+@pytest.mark.unit
+@pytest.mark.standard
+class TestAgentChatAPI:
     """Unit tests for Agent Chat API endpoints."""
     
     @pytest.fixture
@@ -222,163 +29,635 @@ class TestAgentChatAPIEndpoints:
         return TestClient(app)
     
     @pytest.fixture
-    def mock_session_manager(self):
-        """Mock session manager."""
-        with patch('src.api.agent_chat_api.session_manager') as mock:
-            yield mock
+    def mock_base_agent(self):
+        """Mock base agent."""
+        agent = MagicMock()
+        agent.chat = AsyncMock()
+        agent.stream_chat = AsyncMock()
+        agent.get_conversation_history = MagicMock(return_value=[])
+        agent.clear_conversation = MagicMock()
+        return agent
     
-    @pytest.mark.unit
-    def test_create_session_endpoint(self, test_client, mock_session_manager):
-        """Test POST /sessions endpoint."""
-        mock_session_manager.create_session = AsyncMock(return_value="session-123")
+    @pytest.fixture
+    def mock_document_agent(self):
+        """Mock document agent."""
+        agent = MagicMock()
+        agent.chat = AsyncMock()
+        agent.stream_chat = AsyncMock()
+        agent.analyze_document = AsyncMock()
+        agent.get_conversation_history = MagicMock(return_value=[])
+        return agent
+    
+    @pytest.fixture
+    def mock_rag_agent(self):
+        """Mock RAG agent."""
+        agent = MagicMock()
+        agent.chat = AsyncMock()
+        agent.stream_chat = AsyncMock()
+        agent.search_and_answer = AsyncMock()
+        agent.get_sources = AsyncMock()
+        return agent
+    
+    @pytest.fixture
+    def make_chat_message(self):
+        """Factory for creating chat messages."""
+        def _make_message(
+            message_id: Optional[str] = None,
+            role: str = "user",
+            content: str = "Test message",
+            timestamp: Optional[str] = None,
+            metadata: Optional[Dict] = None
+        ) -> Dict:
+            return {
+                "id": message_id or f"msg-{uuid.uuid4().hex[:8]}",
+                "role": role,
+                "content": content,
+                "timestamp": timestamp or datetime.utcnow().isoformat(),
+                "metadata": metadata or {}
+            }
+        return _make_message
+    
+    @pytest.fixture
+    def make_conversation(self):
+        """Factory for creating conversation data."""
+        def _make_conversation(
+            conversation_id: Optional[str] = None,
+            agent_type: str = "base",
+            messages: Optional[List[Dict]] = None,
+            created_at: Optional[str] = None
+        ) -> Dict:
+            return {
+                "id": conversation_id or f"conv-{uuid.uuid4().hex[:8]}",
+                "agent_type": agent_type,
+                "messages": messages or [],
+                "created_at": created_at or datetime.utcnow().isoformat(),
+                "metadata": {
+                    "total_messages": len(messages or []),
+                    "last_activity": datetime.utcnow().isoformat()
+                }
+            }
+        return _make_conversation
+    
+    # =============================================================================
+    # Basic Chat Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("agent_type,message", [
+        pytest.param("base", "Hello, how are you?", id="base-agent-greeting"),
+        pytest.param("document", "Analyze this document", id="document-agent-request"),
+        pytest.param("rag", "What is the capital of France?", id="rag-agent-question"),
+    ])
+    @patch('src.api.agent_chat_api.base_agent')
+    @patch('src.api.agent_chat_api.document_agent')
+    @patch('src.api.agent_chat_api.rag_agent')
+    async def test_chat_with_different_agents(
+        self,
+        mock_rag,
+        mock_doc,
+        mock_base,
+        test_client,
+        mock_base_agent,
+        mock_document_agent,
+        mock_rag_agent,
+        agent_type,
+        message
+    ):
+        """Test chat functionality with different agent types."""
+        # Arrange
+        mock_base.return_value = mock_base_agent
+        mock_doc.return_value = mock_document_agent
+        mock_rag.return_value = mock_rag_agent
         
-        request_data = {
-            "project_id": "project-456",
-            "agent_type": "docs"
-        }
+        response_content = f"Response from {agent_type} agent"
         
-        response = test_client.post("/api/chat/sessions", json=request_data)
+        if agent_type == "base":
+            mock_base_agent.chat.return_value = response_content
+        elif agent_type == "document":
+            mock_document_agent.chat.return_value = response_content
+        elif agent_type == "rag":
+            mock_rag_agent.chat.return_value = response_content
         
+        # Act
+        response = test_client.post(f"/api/agent/{agent_type}/chat", json={
+            "message": message,
+            "conversation_id": "test-conv-123"
+        })
+        
+        # Assert
         assert response.status_code == 200
-        data = response.json()
-        assert data["session_id"] == "session-123"
-        assert data["success"] is True
+        result = response.json()
+        assert result["response"] == response_content
+        assert result["conversation_id"] == "test-conv-123"
+        assert "timestamp" in result
     
-    @pytest.mark.unit
-    def test_get_session_endpoint(self, test_client, mock_session_manager):
-        """Test GET /sessions/{session_id} endpoint."""
-        # Mock session
-        mock_session = MagicMock()
-        mock_session.model_dump.return_value = {
-            "session_id": "session-123",
-            "project_id": "project-456",
-            "messages": [],
-            "agent_type": "docs",
-            "created_at": datetime.now().isoformat()
-        }
-        
-        mock_session_manager.sessions = {"session-123": mock_session}
-        
-        response = test_client.get("/api/chat/sessions/session-123")
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["session"]["session_id"] == "session-123"
-    
-    @pytest.mark.unit
-    def test_send_message_endpoint(self, test_client, mock_session_manager):
-        """Test POST /sessions/{session_id}/messages endpoint."""
-        mock_session_manager.process_user_message = AsyncMock()
-        
-        request_data = {
-            "message": "Create a new document",
-            "context": {"additional": "info"}
-        }
-        
-        response = test_client.post("/api/chat/sessions/session-123/messages", json=request_data)
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["success"] is True
-        
-        # Verify process_user_message was called
-        mock_session_manager.process_user_message.assert_called_once_with(
-            "session-123",
-            "Create a new document",
-            {"additional": "info"}
-        )
-    
-    @pytest.mark.unit
-    def test_get_status_endpoint(self, test_client, mock_session_manager):
-        """Test GET /status endpoint."""
-        # Mock sessions
-        mock_session1 = MagicMock()
-        mock_session1.agent_type = "docs"
-        mock_session1.messages = [MagicMock(), MagicMock()]
-        
-        mock_session2 = MagicMock()
-        mock_session2.agent_type = "rag"
-        mock_session2.messages = [MagicMock()]
-        
-        mock_session_manager.sessions = {
-            "session1": mock_session1,
-            "session2": mock_session2
-        }
-        mock_session_manager.websockets = {"session1": [MagicMock()]}
-        
-        response = test_client.get("/api/chat/status")
-        
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "active"
-        assert data["stats"]["total_sessions"] == 2
-        assert data["stats"]["active_connections"] == 1
-        assert data["stats"]["sessions_by_agent"]["docs"] == 1
-        assert data["stats"]["sessions_by_agent"]["rag"] == 1
-    
-    @pytest.mark.unit
-    def test_chat_message_validation(self):
-        """Test ChatMessage model validation."""
-        # Valid message
-        msg = ChatMessage(
-            id="msg-123",
-            content="Hello",
-            sender="user",
-            timestamp=datetime.now(),
-            agent_type="docs"
-        )
-        
-        assert msg.sender == "user"
-        assert msg.agent_type == "docs"
-        
-        # Message without agent_type (optional)
-        msg2 = ChatMessage(
-            id="msg-456",
-            content="Hi",
-            sender="agent",
-            timestamp=datetime.now()
-        )
-        
-        assert msg2.agent_type is None
-    
-    @pytest.mark.unit
-    def test_session_not_found(self, test_client, mock_session_manager):
-        """Test handling of non-existent session."""
-        mock_session_manager.sessions = {}
-        
-        response = test_client.get("/api/chat/sessions/non-existent")
-        
-        assert response.status_code == 404
-        assert "Session not found" in response.json()["detail"]
+    # =============================================================================
+    # Streaming Chat Tests
+    # =============================================================================
     
     @pytest.mark.asyncio
-    @pytest.mark.unit
-    async def test_lazy_agent_initialization(self, manager):
-        """Test lazy initialization of agents."""
-        # Agents should not be initialized until accessed
-        assert manager._document_agent is None
-        assert manager._rag_agent is None
+    @pytest.mark.timeout(5)
+    @pytest.mark.parametrize("agent_type", ["base", "document", "rag"])
+    @patch('src.api.agent_chat_api.base_agent')
+    @patch('src.api.agent_chat_api.document_agent')
+    @patch('src.api.agent_chat_api.rag_agent')
+    async def test_streaming_chat(
+        self,
+        mock_rag,
+        mock_doc,
+        mock_base,
+        test_client,
+        mock_base_agent,
+        mock_document_agent,
+        mock_rag_agent,
+        agent_type
+    ):
+        """Test streaming chat responses."""
+        # Arrange
+        mock_base.return_value = mock_base_agent
+        mock_doc.return_value = mock_document_agent
+        mock_rag.return_value = mock_rag_agent
         
-        # Mock agent classes
-        with patch('src.api.agent_chat_api.DocumentAgent') as mock_doc:
-            with patch('src.api.agent_chat_api.RagAgent') as mock_rag:
-                # Access document agent
-                _ = manager.document_agent
-                mock_doc.assert_called_once()
-                
-                # Access RAG agent
-                _ = manager.rag_agent
-                mock_rag.assert_called_once()
+        # Mock streaming response
+        async def stream_response():
+            chunks = ["Hello", " from", " streaming", " agent!"]
+            for chunk in chunks:
+                yield chunk
+                await asyncio.sleep(0.01)
+        
+        if agent_type == "base":
+            mock_base_agent.stream_chat.return_value = stream_response()
+        elif agent_type == "document":
+            mock_document_agent.stream_chat.return_value = stream_response()
+        elif agent_type == "rag":
+            mock_rag_agent.stream_chat.return_value = stream_response()
+        
+        # Act & Assert
+        with test_client.websocket_connect(f"/api/agent/{agent_type}/chat/stream") as websocket:
+            # Send message
+            websocket.send_json({
+                "message": "Test streaming",
+                "conversation_id": "stream-conv-123"
+            })
+            
+            # Receive chunks
+            chunks_received = []
+            while True:
+                try:
+                    data = websocket.receive_json(timeout=1)
+                    if data["type"] == "chunk":
+                        chunks_received.append(data["content"])
+                    elif data["type"] == "end":
+                        break
+                except:
+                    break
+            
+            assert len(chunks_received) == 4
+            assert "".join(chunks_received) == "Hello from streaming agent!"
     
-    @pytest.mark.unit
-    def test_create_session_request_validation(self):
-        """Test CreateSessionRequest model validation."""
-        # With defaults
-        req = CreateSessionRequest()
-        assert req.project_id is None
-        assert req.agent_type == "docs"
+    # =============================================================================
+    # Conversation History Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("num_messages", [0, 5, 20])
+    @patch('src.api.agent_chat_api.get_supabase_client')
+    def test_get_conversation_history(
+        self,
+        mock_get_client,
+        test_client,
+        make_chat_message,
+        num_messages
+    ):
+        """Test retrieving conversation history."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
         
-        # With custom values
-        req2 = CreateSessionRequest(project_id="proj-123", agent_type="rag")
-        assert req2.project_id == "proj-123"
-        assert req2.agent_type == "rag"
+        conversation_id = "conv-123"
+        messages = []
+        for i in range(num_messages):
+            role = "user" if i % 2 == 0 else "assistant"
+            messages.append(make_chat_message(
+                role=role,
+                content=f"Message {i+1}"
+            ))
+        
+        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.execute.return_value = MagicMock(
+            data=messages
+        )
+        
+        # Act
+        response = test_client.get(f"/api/agent/conversations/{conversation_id}/history")
+        
+        # Assert
+        assert response.status_code == 200
+        result = response.json()
+        assert len(result["messages"]) == num_messages
+        assert result["conversation_id"] == conversation_id
+        assert result["total_messages"] == num_messages
+    
+    @pytest.mark.parametrize("page,page_size,total_messages", [
+        pytest.param(1, 10, 25, id="first-page"),
+        pytest.param(2, 10, 25, id="second-page"),
+        pytest.param(3, 10, 25, id="last-page-partial"),
+        pytest.param(1, 50, 25, id="all-in-one-page"),
+    ])
+    @patch('src.api.agent_chat_api.get_supabase_client')
+    def test_conversation_history_pagination(
+        self,
+        mock_get_client,
+        test_client,
+        make_chat_message,
+        page,
+        page_size,
+        total_messages
+    ):
+        """Test conversation history with pagination."""
+        # Arrange
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        
+        # Calculate expected messages for this page
+        start_idx = (page - 1) * page_size
+        end_idx = min(start_idx + page_size, total_messages)
+        expected_count = max(0, end_idx - start_idx)
+        
+        messages = [
+            make_chat_message(content=f"Message {i+1}")
+            for i in range(start_idx, end_idx)
+        ]
+        
+        mock_client.table.return_value.select.return_value.eq.return_value.order.return_value.limit.return_value.offset.return_value.execute.return_value = MagicMock(
+            data=messages
+        )
+        
+        # Act
+        response = test_client.get(
+            f"/api/agent/conversations/conv-123/history?page={page}&page_size={page_size}"
+        )
+        
+        # Assert
+        assert response.status_code == 200
+        result = response.json()
+        assert len(result["messages"]) == expected_count
+        assert result["page"] == page
+        assert result["page_size"] == page_size
+    
+    # =============================================================================
+    # Rate Limiting Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("requests_per_minute,should_be_limited", [
+        pytest.param(10, False, id="under-limit"),
+        pytest.param(60, False, id="at-limit"),
+        pytest.param(61, True, id="over-limit"),
+    ])
+    @patch('src.api.agent_chat_api.base_agent')
+    @patch('src.api.agent_chat_api.rate_limiter')
+    async def test_rate_limiting(
+        self,
+        mock_rate_limiter,
+        mock_base,
+        test_client,
+        mock_base_agent,
+        requests_per_minute,
+        should_be_limited
+    ):
+        """Test rate limiting on chat endpoints."""
+        # Arrange
+        mock_base.return_value = mock_base_agent
+        mock_base_agent.chat.return_value = "Response"
+        
+        # Mock rate limiter
+        call_count = 0
+        def check_rate_limit(*args):
+            nonlocal call_count
+            call_count += 1
+            if call_count > 60 and should_be_limited:
+                raise HTTPException(status_code=429, detail="Rate limit exceeded")
+            return True
+        
+        mock_rate_limiter.check_rate_limit = check_rate_limit
+        
+        # Act - Make multiple requests
+        responses = []
+        for i in range(min(requests_per_minute, 65)):  # Cap at 65 to avoid long tests
+            response = test_client.post("/api/agent/base/chat", json={
+                "message": f"Message {i}",
+                "conversation_id": "rate-test"
+            })
+            responses.append(response)
+            
+            if response.status_code == 429:
+                break
+        
+        # Assert
+        if should_be_limited:
+            assert any(r.status_code == 429 for r in responses)
+        else:
+            assert all(r.status_code == 200 for r in responses)
+    
+    # =============================================================================
+    # Document Analysis Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("document_type,content_length", [
+        pytest.param("text", 100, id="short-text"),
+        pytest.param("text", 10000, id="long-text"),
+        pytest.param("markdown", 5000, id="markdown-doc"),
+        pytest.param("code", 2000, id="code-snippet"),
+    ])
+    @patch('src.api.agent_chat_api.document_agent')
+    async def test_document_analysis(
+        self,
+        mock_doc,
+        test_client,
+        mock_document_agent,
+        document_type,
+        content_length
+    ):
+        """Test document analysis with different document types."""
+        # Arrange
+        mock_doc.return_value = mock_document_agent
+        
+        # Generate document content
+        if document_type == "text":
+            content = "Lorem ipsum " * (content_length // 11)
+        elif document_type == "markdown":
+            content = "# Title\n\n## Section\n\nContent " * (content_length // 30)
+        elif document_type == "code":
+            content = "def function():\n    return 'code'\n" * (content_length // 35)
+        else:
+            content = "Generic content " * (content_length // 16)
+        
+        analysis_result = {
+            "summary": f"Analysis of {document_type} document",
+            "key_points": ["Point 1", "Point 2", "Point 3"],
+            "document_type": document_type,
+            "word_count": len(content.split()),
+            "confidence": 0.95
+        }
+        
+        mock_document_agent.analyze_document.return_value = analysis_result
+        
+        # Act
+        response = test_client.post("/api/agent/document/analyze", json={
+            "content": content[:content_length],
+            "document_type": document_type,
+            "conversation_id": "doc-analysis-123"
+        })
+        
+        # Assert
+        assert response.status_code == 200
+        result = response.json()
+        assert result["summary"] == analysis_result["summary"]
+        assert len(result["key_points"]) == 3
+        assert result["document_type"] == document_type
+    
+    # =============================================================================
+    # RAG Search Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("search_params", [
+        pytest.param(
+            {"query": "What is machine learning?", "num_sources": 3},
+            id="basic-search"
+        ),
+        pytest.param(
+            {"query": "Explain quantum computing", "num_sources": 5, "threshold": 0.8},
+            id="high-threshold-search"
+        ),
+        pytest.param(
+            {"query": "Python async programming", "project_id": "proj-123", "num_sources": 3},
+            id="project-scoped-search"
+        ),
+    ])
+    @patch('src.api.agent_chat_api.rag_agent')
+    async def test_rag_search_and_answer(
+        self,
+        mock_rag,
+        test_client,
+        mock_rag_agent,
+        search_params
+    ):
+        """Test RAG search and answer functionality."""
+        # Arrange
+        mock_rag.return_value = mock_rag_agent
+        
+        # Mock search results
+        sources = []
+        for i in range(search_params.get("num_sources", 3)):
+            sources.append({
+                "id": f"source-{i}",
+                "content": f"Source content {i} related to {search_params['query']}",
+                "score": 0.9 - (i * 0.1),
+                "metadata": {"page": f"page-{i}", "section": f"section-{i}"}
+            })
+        
+        rag_response = {
+            "answer": f"Based on the sources, here's information about {search_params['query']}...",
+            "sources": sources,
+            "confidence": 0.85,
+            "search_time": 0.234
+        }
+        
+        mock_rag_agent.search_and_answer.return_value = rag_response
+        
+        # Act
+        response = test_client.post("/api/agent/rag/search", json=search_params)
+        
+        # Assert
+        assert response.status_code == 200
+        result = response.json()
+        assert "answer" in result
+        assert len(result["sources"]) == search_params.get("num_sources", 3)
+        assert result["confidence"] == 0.85
+        assert all(s["score"] >= search_params.get("threshold", 0.0) for s in result["sources"])
+    
+    # =============================================================================
+    # Error Handling Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("error_scenario", [
+        pytest.param("agent_error", id="agent-processing-error"),
+        pytest.param("invalid_agent_type", id="unknown-agent"),
+        pytest.param("conversation_not_found", id="missing-conversation"),
+        pytest.param("websocket_disconnect", id="ws-disconnect"),
+    ])
+    @patch('src.api.agent_chat_api.base_agent')
+    @patch('src.api.agent_chat_api.get_supabase_client')
+    async def test_error_handling(
+        self,
+        mock_get_client,
+        mock_base,
+        test_client,
+        mock_base_agent,
+        error_scenario
+    ):
+        """Test error handling for various scenarios."""
+        # Arrange
+        mock_base.return_value = mock_base_agent
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        
+        if error_scenario == "agent_error":
+            mock_base_agent.chat.side_effect = Exception("Agent processing failed")
+            response = test_client.post("/api/agent/base/chat", json={
+                "message": "Test message"
+            })
+            expected_status = 500
+            
+        elif error_scenario == "invalid_agent_type":
+            response = test_client.post("/api/agent/invalid/chat", json={
+                "message": "Test message"
+            })
+            expected_status = 404
+            
+        elif error_scenario == "conversation_not_found":
+            mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+                data=[]
+            )
+            response = test_client.get("/api/agent/conversations/nonexistent/history")
+            expected_status = 404
+            
+        elif error_scenario == "websocket_disconnect":
+            # This would be tested differently in a real WebSocket test
+            response = test_client.post("/api/agent/base/chat", json={})
+            expected_status = 422  # Invalid request
+        
+        # Assert
+        assert response.status_code == expected_status
+        assert "error" in response.json() or "detail" in response.json()
+    
+    # =============================================================================
+    # Performance Tests
+    # =============================================================================
+    
+    @pytest.mark.slow
+    @pytest.mark.parametrize("message_length", [100, 1000, 5000])
+    @patch('src.api.agent_chat_api.base_agent')
+    async def test_chat_response_time(
+        self,
+        mock_base,
+        test_client,
+        mock_base_agent,
+        message_length
+    ):
+        """Test chat response time with different message lengths."""
+        # Arrange
+        mock_base.return_value = mock_base_agent
+        message = "Test message " * (message_length // 13)
+        
+        # Simulate processing time based on message length
+        async def delayed_response():
+            await asyncio.sleep(message_length / 10000)  # Small delay
+            return f"Response to {len(message)} character message"
+        
+        mock_base_agent.chat.side_effect = delayed_response
+        
+        # Act & Assert
+        with measure_time(f"chat_{message_length}_chars", threshold=1.0):
+            response = test_client.post("/api/agent/base/chat", json={
+                "message": message[:message_length]
+            })
+        
+        assert response.status_code == 200
+        assert "Response to" in response.json()["response"]
+    
+    # =============================================================================
+    # Conversation Management Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("action", ["clear", "export", "delete"])
+    @patch('src.api.agent_chat_api.get_supabase_client')
+    @patch('src.api.agent_chat_api.base_agent')
+    def test_conversation_management(
+        self,
+        mock_base,
+        mock_get_client,
+        test_client,
+        mock_base_agent,
+        action
+    ):
+        """Test conversation management operations."""
+        # Arrange
+        mock_base.return_value = mock_base_agent
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        conversation_id = "conv-to-manage"
+        
+        if action == "clear":
+            mock_base_agent.clear_conversation.return_value = True
+            response = test_client.post(f"/api/agent/conversations/{conversation_id}/clear")
+            
+        elif action == "export":
+            # Mock conversation data
+            messages = [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": "Hi there!"}
+            ]
+            mock_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
+                data=messages
+            )
+            response = test_client.get(f"/api/agent/conversations/{conversation_id}/export")
+            
+        elif action == "delete":
+            mock_client.table.return_value.delete.return_value.eq.return_value.execute.return_value = MagicMock(
+                data=[{"id": conversation_id}]
+            )
+            response = test_client.delete(f"/api/agent/conversations/{conversation_id}")
+        
+        # Assert
+        assert response.status_code == 200
+        result = response.json()
+        
+        if action == "clear":
+            assert result["success"] is True
+            mock_base_agent.clear_conversation.assert_called_once()
+        elif action == "export":
+            assert "messages" in result
+            assert "metadata" in result
+        elif action == "delete":
+            assert result["success"] is True
+            assert result["deleted_id"] == conversation_id
+    
+    # =============================================================================
+    # Multi-turn Conversation Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("num_turns", [1, 3, 5])
+    @patch('src.api.agent_chat_api.base_agent')
+    async def test_multi_turn_conversation(
+        self,
+        mock_base,
+        test_client,
+        mock_base_agent,
+        make_chat_message,
+        num_turns
+    ):
+        """Test multi-turn conversations."""
+        # Arrange
+        mock_base.return_value = mock_base_agent
+        conversation_id = "multi-turn-conv"
+        conversation_history = []
+        
+        # Simulate conversation with context
+        def chat_with_context(message, conv_id, **kwargs):
+            conversation_history.append(make_chat_message(role="user", content=message))
+            response = f"Response {len(conversation_history)}: Acknowledging '{message}'"
+            conversation_history.append(make_chat_message(role="assistant", content=response))
+            return response
+        
+        mock_base_agent.chat.side_effect = chat_with_context
+        mock_base_agent.get_conversation_history.return_value = conversation_history
+        
+        # Act - Have multiple turns
+        for i in range(num_turns):
+            response = test_client.post("/api/agent/base/chat", json={
+                "message": f"User message {i+1}",
+                "conversation_id": conversation_id
+            })
+            assert response.status_code == 200
+        
+        # Assert - Check conversation maintained context
+        assert len(conversation_history) == num_turns * 2  # User + assistant messages
+        assert mock_base_agent.chat.call_count == num_turns

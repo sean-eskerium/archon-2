@@ -1,11 +1,18 @@
-"""Unit tests for Settings API endpoints."""
+"""Unit tests for Settings API endpoints with enhanced patterns."""
+
 import pytest
 from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from src.api.settings_api import router, SetOpenAIKeyRequest, CredentialRequest
+from typing import Dict, Any, Optional
+import os
+
+from src.api.settings_api import router
+from tests.fixtures.test_helpers import assert_fields_equal
 
 
+@pytest.mark.unit
+@pytest.mark.standard
 class TestSettingsAPI:
     """Unit tests for Settings API endpoints."""
     
@@ -17,7 +24,13 @@ class TestSettingsAPI:
     @pytest.fixture
     def mock_credential_service(self):
         """Mock credential service."""
-        return AsyncMock()
+        with patch('src.api.settings_api.credential_service') as mock:
+            mock.get_openai_api_key = MagicMock(return_value="test-key-123")
+            mock.set_openai_api_key = MagicMock()
+            mock.get_all_credentials = MagicMock(return_value={})
+            mock.set_credential = MagicMock()
+            mock.delete_credential = MagicMock()
+            yield mock
     
     @pytest.fixture
     def test_client(self):
@@ -28,201 +41,368 @@ class TestSettingsAPI:
         return TestClient(app)
     
     @pytest.fixture
-    def sample_credential(self):
-        """Sample credential data."""
+    def sample_credentials(self):
+        """Sample credentials data."""
         return {
-            "key": "test_api_key",
-            "value": "sk-test123",
-            "is_encrypted": True,
-            "category": "api_keys",
-            "description": "Test API key"
+            "OPENAI_API_KEY": "sk-test123",
+            "ANTHROPIC_API_KEY": "ak-test456",
+            "GITHUB_TOKEN": "ghp_test789",
+            "SUPABASE_URL": "https://test.supabase.co",
+            "SUPABASE_KEY": "eyJtest123"
         }
     
-    @pytest.mark.unit
-    @patch('src.api.settings_api.get_supabase_client')
-    def test_openai_key_management(self, mock_get_client, test_client, mock_supabase_client):
-        """Test OpenAI API key CRUD operations."""
-        mock_get_client.return_value = mock_supabase_client
-        
-        # Test GET status - no key configured
-        mock_supabase_client.table.return_value.select.return_value.eq.return_value.execute.return_value = MagicMock(
-            data=[]
-        )
-        
-        response = test_client.get("/api/openai-key/status")
-        assert response.status_code == 200
-        assert response.json()["configured"] is False
-        
-        # Test POST - set new key
-        mock_supabase_client.table.return_value.insert.return_value.execute.return_value = MagicMock(
-            data=[{"key_name": "openai_api_key", "key_value": "sk-test123"}]
-        )
-        
-        response = test_client.post("/api/openai-key", json={"api_key": "sk-test123"})
-        assert response.status_code == 200
-        assert response.json()["success"] is True
-        
-        # Test DELETE - remove key
-        mock_supabase_client.table.return_value.delete.return_value.eq.return_value.execute.return_value = MagicMock(
-            data=[{"key_name": "openai_api_key"}]
-        )
-        
-        response = test_client.delete("/api/openai-key")
-        assert response.status_code == 200
-        assert response.json()["success"] is True
+    # =============================================================================
+    # OpenAI Key Management Tests
+    # =============================================================================
     
-    @pytest.mark.unit
-    @patch('src.api.settings_api.credential_service')
-    def test_credential_encryption_decryption(self, mock_cred_service, test_client):
-        """Test credential encryption and decryption functionality."""
-        # Mock credential service methods
-        mock_cred_service.set_credential = AsyncMock(return_value=True)
-        mock_cred_service.get_credential = AsyncMock(return_value="decrypted_value")
+    @pytest.mark.parametrize("existing_key,expected_masked", [
+        pytest.param(None, None, id="no-key"),
+        pytest.param("sk-test123", "sk-...123", id="short-key"),
+        pytest.param("sk-proj-verylongkeyhere123456789", "sk-...789", id="long-key"),
+    ])
+    def test_get_openai_api_key(
+        self,
+        test_client,
+        mock_credential_service,
+        existing_key,
+        expected_masked
+    ):
+        """Test getting OpenAI API key with masking."""
+        # Arrange
+        mock_credential_service.get_openai_api_key.return_value = existing_key
         
-        # Test creating encrypted credential
-        credential_data = {
-            "key": "secret_key",
-            "value": "sensitive_data",
-            "is_encrypted": True,
-            "category": "secrets"
-        }
+        # Act
+        response = test_client.get("/api/settings/openai-key")
         
-        response = test_client.post("/api/credentials", json=credential_data)
+        # Assert
+        assert response.status_code == 200
+        result = response.json()
+        
+        if existing_key:
+            assert result["exists"] is True
+            assert result["masked_key"] == expected_masked
+        else:
+            assert result["exists"] is False
+            assert result["masked_key"] is None
+    
+    @pytest.mark.parametrize("api_key,should_succeed", [
+        pytest.param("sk-valid123", True, id="valid-key"),
+        pytest.param("", False, id="empty-key"),
+        pytest.param(None, False, id="null-key"),
+    ])
+    def test_set_openai_api_key(
+        self,
+        test_client,
+        mock_credential_service,
+        api_key,
+        should_succeed
+    ):
+        """Test setting OpenAI API key."""
+        # Arrange
+        request_data = {"api_key": api_key} if api_key is not None else {}
+        
+        # Act
+        response = test_client.post("/api/settings/openai-key", json=request_data)
+        
+        # Assert
+        if should_succeed:
+            assert response.status_code == 200
+            assert response.json()["success"] is True
+            mock_credential_service.set_openai_api_key.assert_called_once_with(api_key)
+        else:
+            assert response.status_code in [400, 422]
+    
+    def test_delete_openai_api_key(self, test_client, mock_credential_service):
+        """Test deleting OpenAI API key."""
+        # Act
+        response = test_client.delete("/api/settings/openai-key")
+        
+        # Assert
         assert response.status_code == 200
         assert response.json()["success"] is True
-        assert "encrypted and saved" in response.json()["message"]
-        
-        # Verify encryption was requested
-        mock_cred_service.set_credential.assert_called_with(
-            key="secret_key",
-            value="sensitive_data",
-            is_encrypted=True,
-            category="secrets",
-            description=None
-        )
+        mock_credential_service.set_openai_api_key.assert_called_once_with(None)
     
-    @pytest.mark.unit
-    @patch('src.api.settings_api.credential_service')
-    def test_credential_category_filtering(self, mock_cred_service, test_client):
-        """Test filtering credentials by category."""
-        # Mock credentials with different categories
-        from src.credential_service import CredentialItem
+    # =============================================================================
+    # General Credentials Management Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("credentials", [
+        pytest.param({}, id="no-credentials"),
+        pytest.param({"KEY1": "value1"}, id="single-credential"),
+        pytest.param({
+            "OPENAI_API_KEY": "sk-test",
+            "GITHUB_TOKEN": "ghp-test",
+            "CUSTOM_KEY": "custom-value"
+        }, id="multiple-credentials"),
+    ])
+    def test_get_all_credentials(
+        self,
+        test_client,
+        mock_credential_service,
+        credentials
+    ):
+        """Test getting all credentials with masking."""
+        # Arrange
+        mock_credential_service.get_all_credentials.return_value = credentials
         
-        mock_credentials = [
-            CredentialItem(
-                key="api_key_1",
-                value="value1",
-                is_encrypted=False,
-                category="api_keys"
-            ),
-            CredentialItem(
-                key="api_key_2",
-                value="value2",
-                is_encrypted=False,
-                category="api_keys"
-            ),
-            CredentialItem(
-                key="db_password",
-                value="value3",
-                is_encrypted=True,
-                category="database"
+        # Act
+        response = test_client.get("/api/settings/credentials")
+        
+        # Assert
+        assert response.status_code == 200
+        result = response.json()
+        assert "credentials" in result
+        
+        # Verify all keys are masked
+        for key, masked_value in result["credentials"].items():
+            assert key in credentials
+            if credentials[key]:
+                assert masked_value.endswith("..." + credentials[key][-3:])
+                assert not masked_value == credentials[key]  # Ensure it's actually masked
+    
+    @pytest.mark.parametrize("credential_data,expected_status", [
+        pytest.param(
+            {"key": "API_KEY", "value": "test123"},
+            200,
+            id="valid-credential"
+        ),
+        pytest.param(
+            {"key": "", "value": "test"},
+            422,
+            id="empty-key"
+        ),
+        pytest.param(
+            {"key": "KEY", "value": ""},
+            200,  # Empty value allowed (for deletion)
+            id="empty-value"
+        ),
+        pytest.param(
+            {"key": "VERY_LONG_KEY_NAME_THAT_EXCEEDS_LIMITS" * 10, "value": "test"},
+            422,
+            id="key-too-long"
+        ),
+    ])
+    def test_set_credential(
+        self,
+        test_client,
+        mock_credential_service,
+        credential_data,
+        expected_status
+    ):
+        """Test setting individual credentials."""
+        # Act
+        response = test_client.post("/api/settings/credentials", json=credential_data)
+        
+        # Assert
+        assert response.status_code == expected_status
+        
+        if expected_status == 200:
+            assert response.json()["success"] is True
+            mock_credential_service.set_credential.assert_called_once_with(
+                credential_data["key"],
+                credential_data["value"]
             )
-        ]
-        
-        mock_cred_service.list_all_credentials = AsyncMock(return_value=mock_credentials)
-        
-        # Test listing all credentials
-        response = test_client.get("/api/credentials")
-        assert response.status_code == 200
-        assert len(response.json()) == 3
-        
-        # Test filtering by category
-        response = test_client.get("/api/credentials?category=api_keys")
-        assert response.status_code == 200
-        assert len(response.json()) == 2
-        assert all(cred["category"] == "api_keys" for cred in response.json())
     
-    @pytest.mark.unit
-    @patch('src.api.settings_api.credential_service')
-    def test_credential_crud_operations(self, mock_cred_service, test_client, sample_credential):
-        """Test Create, Read, Update, Delete operations for credentials."""
-        # Mock service methods
-        mock_cred_service.set_credential = AsyncMock(return_value=True)
-        mock_cred_service.get_credential = AsyncMock(return_value=sample_credential["value"])
-        mock_cred_service.delete_credential = AsyncMock(return_value=True)
+    @pytest.mark.parametrize("key_to_delete", [
+        "OPENAI_API_KEY",
+        "CUSTOM_CREDENTIAL",
+        "GITHUB_TOKEN",
+    ])
+    def test_delete_credential(
+        self,
+        test_client,
+        mock_credential_service,
+        key_to_delete
+    ):
+        """Test deleting individual credentials."""
+        # Act
+        response = test_client.delete(f"/api/settings/credentials/{key_to_delete}")
         
-        # CREATE
-        response = test_client.post("/api/credentials", json=sample_credential)
+        # Assert
         assert response.status_code == 200
         assert response.json()["success"] is True
-        
-        # READ
-        response = test_client.get(f"/api/credentials/{sample_credential['key']}")
-        assert response.status_code == 200
-        assert response.json()["value"] == sample_credential["value"]
-        
-        # UPDATE
-        update_data = {"value": "new_value", "category": "updated_category"}
-        response = test_client.put(f"/api/credentials/{sample_credential['key']}", json=update_data)
-        assert response.status_code == 200
-        assert response.json()["success"] is True
-        
-        # DELETE
-        response = test_client.delete(f"/api/credentials/{sample_credential['key']}")
-        assert response.status_code == 200
-        assert response.json()["success"] is True
+        mock_credential_service.delete_credential.assert_called_once_with(key_to_delete)
     
-    @pytest.mark.unit
-    @patch('src.api.settings_api.get_supabase_client')
-    def test_database_metrics_endpoint(self, mock_get_client, test_client, mock_supabase_client):
-        """Test database metrics retrieval."""
-        mock_get_client.return_value = mock_supabase_client
-        
-        # Mock table count responses
-        mock_supabase_client.table.return_value.select.return_value.execute.side_effect = [
-            MagicMock(count=10),  # projects
-            MagicMock(count=25),  # tasks
-            MagicMock(count=100), # crawled_pages
-            MagicMock(count=5)    # credentials
-        ]
-        
-        response = test_client.get("/api/database/metrics")
-        assert response.status_code == 200
-        
-        data = response.json()
-        assert data["status"] == "healthy"
-        assert data["tables"]["projects"] == 10
-        assert data["tables"]["tasks"] == 25
-        assert data["tables"]["crawled_pages"] == 100
-        assert data["tables"]["credentials"] == 5
-        assert data["total_records"] == 140
+    # =============================================================================
+    # Environment Variable Tests
+    # =============================================================================
     
-    @pytest.mark.unit
-    @patch('src.api.settings_api.credential_service')
-    def test_credential_not_found_error(self, mock_cred_service, test_client):
-        """Test 404 error for non-existent credential."""
-        mock_cred_service.get_credential = AsyncMock(return_value=None)
+    @pytest.mark.parametrize("env_vars", [
+        pytest.param({}, id="no-env-vars"),
+        pytest.param({
+            "OPENAI_API_KEY": "from-env",
+            "DATABASE_URL": "postgres://..."
+        }, id="with-env-vars"),
+    ])
+    def test_credentials_include_env_vars(
+        self,
+        test_client,
+        mock_credential_service,
+        env_vars,
+        monkeypatch
+    ):
+        """Test that environment variables are included in credentials."""
+        # Arrange
+        for key, value in env_vars.items():
+            monkeypatch.setenv(key, value)
         
-        response = test_client.get("/api/credentials/non_existent")
-        assert response.status_code == 404
-        assert "not found" in response.json()["detail"]["error"]
-    
-    @pytest.mark.unit
-    @patch('src.api.settings_api.initialize_credentials')
-    def test_initialize_credentials_endpoint(self, mock_init_creds, test_client):
-        """Test credentials initialization endpoint."""
-        mock_init_creds.return_value = None
+        # Simulate credential service returning env vars
+        mock_credential_service.get_all_credentials.return_value = env_vars
         
-        response = test_client.post("/api/credentials/initialize")
+        # Act
+        response = test_client.get("/api/settings/credentials")
+        
+        # Assert
         assert response.status_code == 200
-        assert response.json()["success"] is True
-        assert "reloaded" in response.json()["message"]
-        mock_init_creds.assert_called_once()
+        result = response.json()
+        
+        for key in env_vars:
+            assert key in result["credentials"]
     
-    @pytest.mark.unit
-    def test_health_check_endpoint(self, test_client):
-        """Test health check endpoint."""
-        response = test_client.get("/api/health")
+    # =============================================================================
+    # Error Handling Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("error_type,endpoint,method", [
+        pytest.param(
+            Exception("Database error"),
+            "/api/settings/openai-key",
+            "GET",
+            id="get-key-error"
+        ),
+        pytest.param(
+            Exception("Write failed"),
+            "/api/settings/openai-key",
+            "POST",
+            id="set-key-error"
+        ),
+        pytest.param(
+            Exception("Service unavailable"),
+            "/api/settings/credentials",
+            "GET",
+            id="get-credentials-error"
+        ),
+    ])
+    def test_error_handling(
+        self,
+        test_client,
+        mock_credential_service,
+        error_type,
+        endpoint,
+        method
+    ):
+        """Test error handling for various failure scenarios."""
+        # Arrange
+        if method == "GET" and "openai-key" in endpoint:
+            mock_credential_service.get_openai_api_key.side_effect = error_type
+        elif method == "POST" and "openai-key" in endpoint:
+            mock_credential_service.set_openai_api_key.side_effect = error_type
+        elif method == "GET" and "credentials" in endpoint:
+            mock_credential_service.get_all_credentials.side_effect = error_type
+        
+        # Act
+        if method == "GET":
+            response = test_client.get(endpoint)
+        elif method == "POST":
+            response = test_client.post(endpoint, json={"api_key": "test"})
+        
+        # Assert
+        assert response.status_code == 500
+        assert "error" in response.json() or "detail" in response.json()
+    
+    # =============================================================================
+    # Security Tests
+    # =============================================================================
+    
+    def test_credentials_always_masked_in_responses(
+        self,
+        test_client,
+        mock_credential_service,
+        sample_credentials
+    ):
+        """Test that credentials are never returned in plain text."""
+        # Arrange
+        mock_credential_service.get_all_credentials.return_value = sample_credentials
+        
+        # Act
+        response = test_client.get("/api/settings/credentials")
+        
+        # Assert
         assert response.status_code == 200
-        assert response.json()["status"] == "healthy"
-        assert response.json()["service"] == "settings"
+        result = response.json()
+        
+        # Ensure no actual credential values are in the response
+        response_text = response.text
+        for key, value in sample_credentials.items():
+            assert value not in response_text  # Full value should never appear
+            
+            # But masked version should be there
+            masked = result["credentials"].get(key)
+            assert masked is not None
+            assert masked != value
+            assert "..." in masked
+    
+    @pytest.mark.parametrize("sensitive_key", [
+        "PASSWORD",
+        "SECRET",
+        "TOKEN",
+        "KEY",
+        "PRIVATE",
+    ])
+    def test_sensitive_credential_names_handled(
+        self,
+        test_client,
+        mock_credential_service,
+        sensitive_key
+    ):
+        """Test that credentials with sensitive names are properly masked."""
+        # Arrange
+        credentials = {
+            f"MY_{sensitive_key}": "sensitive-value-12345",
+            f"{sensitive_key}_API": "another-sensitive-67890"
+        }
+        mock_credential_service.get_all_credentials.return_value = credentials
+        
+        # Act
+        response = test_client.get("/api/settings/credentials")
+        
+        # Assert
+        assert response.status_code == 200
+        result = response.json()
+        
+        for key, masked in result["credentials"].items():
+            # Should be masked regardless of key name
+            assert "..." in masked
+            assert not masked.startswith("sensitive")
+    
+    # =============================================================================
+    # Validation Tests
+    # =============================================================================
+    
+    @pytest.mark.parametrize("invalid_request", [
+        pytest.param(
+            {"wrong_field": "value"},
+            id="wrong-field-name"
+        ),
+        pytest.param(
+            {"api_key": 12345},  # Wrong type
+            id="non-string-key"
+        ),
+        pytest.param(
+            {"api_key": "x" * 1000},  # Too long
+            id="key-too-long"
+        ),
+    ])
+    def test_request_validation(
+        self,
+        test_client,
+        mock_credential_service,
+        invalid_request
+    ):
+        """Test request validation for invalid inputs."""
+        # Act
+        response = test_client.post("/api/settings/openai-key", json=invalid_request)
+        
+        # Assert
+        assert response.status_code in [400, 422]
+        assert "detail" in response.json() or "error" in response.json()
