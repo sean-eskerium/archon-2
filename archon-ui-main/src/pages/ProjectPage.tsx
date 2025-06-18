@@ -17,7 +17,7 @@ import type { Task } from '../components/project-tasks/TaskTableView';
 import { ProjectCreationProgressCard } from '../components/ProjectCreationProgressCard';
 import { projectCreationProgressService } from '../services/projectCreationProgressService';
 import type { ProjectCreationProgressData } from '../services/projectCreationProgressService';
-import { projectListWebSocket } from '../services/websocketService';
+import { projectListWebSocket } from '../services/projectListWebSocketService';
 
 interface ProjectPageProps {
   className?: string;
@@ -139,35 +139,51 @@ export function ProjectPage({
       setIsLoadingProjects(false);
     };
 
-    // Try WebSocket connection first
-    const connectWebSocket = () => {
-      console.log('📡 Attempting WebSocket connection for real-time project updates');
-      projectListWebSocket.connect('/api/projects/stream');
+    // Try WebSocket connection for live updates
+    const connectWebSocket = async () => {
+      console.log('📡 Attempting WebSocket connection for project updates');
       
-      const handleProjectUpdate = (data: any) => {
-        if (!isComponentMounted) return;
+      try {
+        await projectListWebSocket.connect({
+          onProjectCreated: (project: any) => {
+            console.log('✅ Project created via WebSocket:', project);
+            setProjects(prev => [...prev, project]);
+          },
+          onProjectUpdated: (project: any) => {
+            console.log('📝 Project updated via WebSocket:', project);
+            setProjects(prev => prev.map(p => p.id === project.id ? project : p));
+          },
+          onProjectDeleted: (project: any) => {
+            console.log('🗑️ Project deleted via WebSocket:', project);
+            setProjects(prev => prev.filter(p => p.id !== project.id));
+          },
+          onProjectsUpdated: (projectsData: any[]) => {
+            console.log('🔄 Projects batch update via WebSocket:', projectsData);
+            updateProjectsState(projectsData);
+          },
+          onError: (error) => {
+            console.error('❌ WebSocket error:', error);
+            if (!wsConnected && !fallbackExecuted && isComponentMounted) {
+              console.log('⏰ WebSocket error: Loading via REST API');
+              fallbackExecuted = true;
+              loadProjectsViaRest();
+            }
+          },
+          onStateChange: (state) => {
+            console.log(`📡 Project list WebSocket state: ${state}`);
+          }
+        });
         
-        if (data.type === 'projects_update') {
-          console.log('✅ WebSocket: Received projects update');
-          updateProjectsState(data.data.projects);
-          wsConnected = true;
-        }
-      };
-      
-      projectListWebSocket.addEventListener('projects_update', handleProjectUpdate);
-      
-      // Set fallback timeout - only execute if WebSocket hasn't connected and component is still mounted
-      loadTimeoutRef = setTimeout(() => {
-        if (isComponentMounted && !wsConnected && !fallbackExecuted) {
-          console.log('⏰ WebSocket fallback: Loading via REST API after timeout');
+        wsConnected = true;
+        console.log('✅ Project list WebSocket connected successfully');
+      } catch (error) {
+        console.error('❌ Failed to connect WebSocket:', error);
+        if (!fallbackExecuted && isComponentMounted) {
+          console.log('⏰ WebSocket connection failed: Loading via REST API');
           fallbackExecuted = true;
           loadProjectsViaRest();
         }
-      }, 2000);
-      
-      return () => {
-        projectListWebSocket.removeEventListener('projects_update', handleProjectUpdate);
-      };
+      }
     };
 
     // Fallback REST API loading
@@ -185,15 +201,24 @@ export function ProjectPage({
       }
     };
 
-    const cleanup = connectWebSocket();
+    // Start WebSocket connection
+    connectWebSocket();
     
+    // Set fallback timeout - only execute if WebSocket hasn't connected and component is still mounted
+    loadTimeoutRef = setTimeout(() => {
+      if (isComponentMounted && !wsConnected && !fallbackExecuted) {
+        console.log('⏰ WebSocket fallback: Loading via REST API after timeout');
+        fallbackExecuted = true;
+        loadProjectsViaRest();
+      }
+    }, 2000);
+
     return () => {
       console.log('🧹 ProjectPage: Cleaning up project loading');
       isComponentMounted = false;
       if (loadTimeoutRef) {
         clearTimeout(loadTimeoutRef);
       }
-      cleanup();
       projectListWebSocket.disconnect();
     };
   }, []); // Only run once on mount
@@ -492,7 +517,12 @@ export function ProjectPage({
             }
           },
           { autoReconnect: true, reconnectDelay: 5000 }
-        );
+        ).catch(error => {
+          console.error('Failed to connect to project creation progress:', error);
+          showToast('Failed to track project creation progress', 'error');
+          // Remove the temporary project on connection failure
+          setProjects((prev) => prev.filter(p => p.id !== tempId));
+        });
       } else {
         // Fallback to old synchronous flow
         const newProject = await projectService.createProject(projectData);

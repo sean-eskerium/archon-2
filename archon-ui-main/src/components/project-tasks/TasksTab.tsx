@@ -6,9 +6,10 @@ import { Button } from '../ui/Button';
 import { ArchonLoadingSpinner } from '../animations/Animations';
 import { Toggle } from '../ui/Toggle';
 import { projectService } from '../../services/projectService';
-import { taskUpdateWebSocket } from '../../services/websocketService';
+import { taskUpdateWebSocket } from '../../services/taskUpdateService';
 import type { CreateTaskRequest, UpdateTaskRequest, DatabaseTaskStatus } from '../../types/project';
-import { TaskTableView, Task } from './TaskTableView';
+import { Task } from '../../types/project';
+import { TaskTableView } from './TaskTableView';
 import { TaskBoardView } from './TaskBoardView';
 
 // Assignee utilities
@@ -93,111 +94,90 @@ export const TasksTab = ({
     loadProjectFeatures();
   }, [projectId]);
 
-  // WebSocket connection for real-time task updates
+  // WebSocket connection for real-time updates
   useEffect(() => {
-    if (!projectId) return;
+    console.log(`🔌 Initializing WebSocket connection for project: ${projectId}`);
+    if (!projectId) {
+      console.log('❌ No projectId provided, skipping WebSocket connection');
+      return;
+    }
 
-    console.log('🔌 Setting up WebSocket connection for project:', projectId);
-
-    const connectWebSocket = () => {
-      taskUpdateWebSocket.connect(projectId, {
-        onConnectionEstablished: () => {
-          console.log('✅ Task updates WebSocket connected');
-          setIsWebSocketConnected(true);
-        },
-        
-        onInitialTasks: (initialWebSocketTasks) => {
-          const uiTasks: Task[] = initialWebSocketTasks.map(mapDatabaseTaskToUITask);
-          setTasks(uiTasks);
-          onTasksChange(uiTasks);
-        },
-        
-        onTaskCreated: (newTask) => {
-          console.log('🆕 Real-time task created:', newTask);
-          const mappedTask = mapDatabaseTaskToUITask(newTask);
-          setTasks(prev => {
-            // Check if task already exists to prevent duplicates
-            if (prev.some(task => task.id === newTask.id)) {
-              console.log('Task already exists, skipping create');
-              return prev;
-            }
-            const updated = [...prev, mappedTask];
-            // Use setTimeout to avoid setState during render
-            setTimeout(() => onTasksChange(updated), 0);
-            return updated;
-          });
-        },
-        
-        onTaskUpdated: (updatedTask) => {
-          console.log('📝 Real-time task updated:', updatedTask);
-          const mappedTask = mapDatabaseTaskToUITask(updatedTask);
-          setTasks(prev => {
-            // Check if this is actually a change
-            const existingTask = prev.find(task => task.id === updatedTask.id);
-            if (existingTask && JSON.stringify(existingTask) === JSON.stringify(mappedTask)) {
-              console.log('No actual changes in task, skipping update');
-              return prev;
-            }
-            
-            const updated = prev.map(task => 
-              task.id === updatedTask.id ? mappedTask : task
-            );
-            // Use setTimeout to avoid setState during render
-            setTimeout(() => onTasksChange(updated), 0);
-            return updated;
-          });
-        },
-
-        // Handle bulk task updates from MCP DatabaseChangeDetector
-        onTasksChange: (updatedTasks) => {
-          setTasks(prev => {
-            const updated = [...prev];
-            
-            // Update each changed task
-            updatedTasks.forEach(updatedTask => {
-              const mappedTask = mapDatabaseTaskToUITask(updatedTask);
-              const index = updated.findIndex(task => task.id === updatedTask.id);
-              if (index >= 0) {
-                updated[index] = mappedTask;
-              }
+    const connectWebSocket = async () => {
+      console.log(`🔄 Connecting WebSocket for project: ${projectId}...`);
+      
+      try {
+        await taskUpdateWebSocket.connect(projectId, {
+          onTaskCreated: (task) => {
+            console.log('🆕 Task created via WebSocket:', task);
+            setTasks(prevTasks => {
+              const newTask = mapDatabaseTaskToUITask(task);
+              const updatedTasks = [...prevTasks, newTask];
+              onTasksChange(updatedTasks);
+              return updatedTasks;
             });
-            
-            // Use setTimeout to avoid setState during render
-            setTimeout(() => onTasksChange(updated), 0);
-            return updated;
-          });
-        },
+          },
+          onTaskUpdated: (task) => {
+            console.log('📝 Task updated via WebSocket:', task);
+            setTasks(prevTasks => {
+              const newTask = mapDatabaseTaskToUITask(task);
+              const updatedTasks = prevTasks.map(t => 
+                t.id === newTask.id ? newTask : t
+              );
+              onTasksChange(updatedTasks);
+              return updatedTasks;
+            });
+          },
+          onTaskDeleted: (task) => {
+            console.log('🗑️ Task deleted via WebSocket:', task);
+            setTasks(prevTasks => {
+              const updatedTasks = prevTasks.filter(t => t.id !== task.id);
+              onTasksChange(updatedTasks);
+              return updatedTasks;
+            });
+          },
+          onTaskArchived: (task) => {
+            console.log('📦 Task archived via WebSocket:', task);
+            setTasks(prevTasks => {
+              const updatedTasks = prevTasks.filter(t => t.id !== task.id);
+              onTasksChange(updatedTasks);
+              return updatedTasks;
+            });
+          },
+          onConnectionEstablished: () => {
+            console.log('✅ WebSocket connection established for project:', projectId);
+            setIsWebSocketConnected(true);
+          },
+          onInitialTasks: (tasksData) => {
+            console.log('� Initial tasks received via WebSocket:', tasksData);
+            if (tasksData && tasksData.length > 0) {
+              const uiTasks = tasksData.map(mapDatabaseTaskToUITask);
+              setTasks(uiTasks);
+              onTasksChange(uiTasks);
+            }
+          },
+          onTasksChange: (tasksData) => {
+            console.log('� Tasks updated via MCP WebSocket:', tasksData);
+            if (tasksData && tasksData.length > 0) {
+              const uiTasks = tasksData.map(mapDatabaseTaskToUITask);
+              setTasks(uiTasks);
+              onTasksChange(uiTasks);
+            }
+          },
+          onError: (error) => {
+            console.error('❌ WebSocket error:', error);
+            setIsWebSocketConnected(false);
+          },
+          onClose: () => {
+            console.log('🔌 WebSocket closed');
+            setIsWebSocketConnected(false);
+          }
+        });
         
-        onTaskDeleted: (deletedTask) => {
-          console.log('🗑️ Real-time task deleted:', deletedTask);
-          setTasks(prev => {
-            const updated = prev.filter(task => task.id !== deletedTask.id);
-            // Use setTimeout to avoid setState during render
-            setTimeout(() => onTasksChange(updated), 0);
-            return updated;
-          });
-        },
-        
-        onTaskArchived: (archivedTask) => {
-          console.log('📦 Real-time task archived:', archivedTask);
-          setTasks(prev => {
-            const updated = prev.filter(task => task.id !== archivedTask.id);
-            // Use setTimeout to avoid setState during render
-            setTimeout(() => onTasksChange(updated), 0);
-            return updated;
-          });
-        },
-        
-        onError: (error) => {
-          console.error('❌ Task updates WebSocket error:', error);
-          setIsWebSocketConnected(false);
-        },
-        
-        onClose: (event) => {
-          console.log('🔌 Task updates WebSocket closed:', event);
-          setIsWebSocketConnected(false);
-        }
-      });
+        console.log('✅ WebSocket setup completed');
+      } catch (error) {
+        console.error('❌ Failed to connect WebSocket:', error);
+        setIsWebSocketConnected(false);
+      }
     };
 
     connectWebSocket();

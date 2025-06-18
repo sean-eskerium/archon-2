@@ -9,7 +9,7 @@ import { Badge } from '../components/ui/Badge';
 import { useStaggeredEntrance } from '../hooks/useStaggeredEntrance';
 import { useToast } from '../contexts/ToastContext';
 import { knowledgeBaseService, KnowledgeItem, KnowledgeItemMetadata } from '../services/knowledgeBaseService';
-import { knowledgeWebSocket } from '../services/websocketService';
+import { knowledgeWebSocket } from '../services/knowledgeWebSocketService';
 import { CrawlingProgressCard } from '../components/CrawlingProgressCard';
 import { CrawlProgressData, crawlProgressServiceV2 as crawlProgressService } from '../services/crawlProgressServiceV2';
 import { WebSocketState } from '../services/EnhancedWebSocketService';
@@ -325,33 +325,53 @@ export const KnowledgeBasePage = () => {
     }
 
     // Try WebSocket connection first
-    const connectWebSocket = () => {
+    const connectWebSocket = async () => {
       console.log('📡 Attempting WebSocket connection for real-time updates');
-      knowledgeWebSocket.connect('/api/knowledge-items/stream');
       
-      const handleKnowledgeUpdate = (data: any) => {
-        if (!isComponentMounted) return;
-        
-        if (data.type === 'knowledge_items_update') {
-          console.log('✅ WebSocket: Received knowledge items update');
-          setKnowledgeItems(data.data.items);
-          setTotalItems(data.data.total);
-          setLoading(false);
-          setLoadingStrategy('websocket');
-          wsConnected = true;
-        } else if (data.type === 'crawl_completed') {
-          console.log('✅ WebSocket: Received crawl completion');
-          if (data.data.success) {
-            showToast('Crawling completed successfully', 'success');
-          } else {
-            showToast('Crawling failed', 'error');
+      try {
+        await knowledgeWebSocket.connect({
+          onKnowledgeUpdate: (data: any) => {
+            if (!isComponentMounted) return;
+            
+            console.log('✅ WebSocket: Received knowledge items update');
+            setKnowledgeItems(data.items || []);
+            setTotalItems(data.total || 0);
+            setLoading(false);
+            setLoadingStrategy('websocket');
+            wsConnected = true;
+          },
+          onSourceUpdate: (data: any) => {
+            if (!isComponentMounted) return;
+            
+            if (data.success) {
+              showToast('Source updated successfully', 'success');
+              // Reload items to show the updated content
+              loadKnowledgeItems();
+            }
+          },
+          onError: (error) => {
+            console.error('❌ WebSocket error:', error);
+            if (!wsConnected && !fallbackExecuted && isComponentMounted) {
+              console.log('⏰ WebSocket error: Loading via REST API');
+              fallbackExecuted = true;
+              loadKnowledgeItems();
+            }
+          },
+          onStateChange: (state) => {
+            console.log(`📡 Knowledge WebSocket state: ${state}`);
           }
-          // Reload items to show the new content
+        });
+        
+        wsConnected = true;
+        console.log('✅ Knowledge WebSocket connected successfully');
+      } catch (error) {
+        console.error('❌ Failed to connect WebSocket:', error);
+        if (!fallbackExecuted && isComponentMounted) {
+          console.log('⏰ WebSocket connection failed: Loading via REST API');
+          fallbackExecuted = true;
           loadKnowledgeItems();
         }
-      };
-      
-      knowledgeWebSocket.addEventListener('knowledge_items_update', handleKnowledgeUpdate);
+      }
       
       // Set fallback timeout - only execute if WebSocket hasn't connected and component is still mounted
       loadTimeoutRef.current = setTimeout(() => {
@@ -361,13 +381,9 @@ export const KnowledgeBasePage = () => {
           loadKnowledgeItems();
         }
       }, 2000); // Reduced from 3000ms to 2000ms for better UX
-      
-      return () => {
-        knowledgeWebSocket.removeEventListener('knowledge_items_update', handleKnowledgeUpdate);
-      };
     };
 
-    const cleanup = connectWebSocket();
+    connectWebSocket();
     
     return () => {
       console.log('🧹 KnowledgeBasePage: Cleaning up data loading');
@@ -375,7 +391,6 @@ export const KnowledgeBasePage = () => {
       if (loadTimeoutRef.current) {
         clearTimeout(loadTimeoutRef.current);
       }
-      cleanup();
       knowledgeWebSocket.disconnect();
       
       // Clean up any active crawl progress connections
