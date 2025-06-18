@@ -5,7 +5,7 @@ sidebar_position: 9
 
 # Python Testing Strategy with pytest
 
-This document outlines Archon's comprehensive Python testing strategy, incorporating the latest pytest best practices for 2024.
+This document outlines Archon's comprehensive Python testing strategy, incorporating the latest pytest best practices for 2024. Our test suite includes **235+ test cases** across unit, integration, E2E, and performance tests.
 
 ## 🎯 Testing Philosophy
 
@@ -14,7 +14,7 @@ Our Python testing follows these core principles:
 1. **Test Isolation**: Each test should be independent and self-contained
 2. **Descriptive Naming**: Long, descriptive test names that explain what is being tested
 3. **Behavior-Driven**: Test behavior and outcomes, not implementation details
-4. **Comprehensive Coverage**: Aim for 80%+ code coverage with meaningful tests
+4. **Comprehensive Coverage**: Aim for 80%+ code coverage (95% for critical services)
 5. **Fast Feedback**: Tests should run quickly to enable rapid development
 
 ## 📁 Project Structure
@@ -22,515 +22,417 @@ Our Python testing follows these core principles:
 ```
 python/
 ├── pyproject.toml           # Modern Python project configuration
-├── pytest.ini               # pytest-specific configuration
-├── .coveragerc             # Coverage configuration
+├── tests/                   # Test suite (235+ test cases)
+│   ├── conftest.py         # Global fixtures and configuration
+│   ├── pytest.ini          # Pytest configuration
+│   ├── .coveragerc         # Coverage settings
+│   ├── run_tests.py        # Custom test runner with filtering
+│   ├── unit/               # Unit tests
+│   │   ├── test_agents/    # Agent tests (30 cases)
+│   │   ├── test_api/       # API endpoint tests (65 cases)
+│   │   ├── test_models/    # Model validation tests
+│   │   ├── test_modules/   # Module tests
+│   │   ├── test_services/  # Service layer tests (137 cases)
+│   │   │   ├── test_projects/   # ProjectService, TaskService, etc.
+│   │   │   └── test_rag/        # RAG service tests
+│   │   └── test_utils/     # Utility tests (12 cases)
+│   ├── integration/        # Integration tests
+│   │   ├── test_api/       # API integration tests
+│   │   ├── test_database/  # Database integration
+│   │   ├── test_mcp/       # MCP integration
+│   │   └── test_websockets/# WebSocket tests
+│   ├── e2e/                # End-to-end tests
+│   │   ├── test_workflows/ # Complete user workflows
+│   │   └── test_mcp_tools/ # MCP tool integration
+│   ├── performance/        # Performance tests
+│   └── fixtures/           # Test data and utilities
+│       ├── mock_data.py    # Factory patterns & builders
+│       └── test_helpers.py # Domain-specific assertions
 ├── src/                    # Application source code
-│   ├── api/               # FastAPI endpoints
-│   ├── services/          # Business logic services
-│   ├── modules/           # MCP modules
-│   ├── utils/             # Utility functions
-│   └── models/            # Data models
-├── tests/                  # Test suite
-│   ├── conftest.py        # Global fixtures and configuration
-│   ├── unit/              # Unit tests
-│   │   ├── test_services/ # Service layer tests
-│   │   ├── test_modules/  # Module tests
-│   │   └── test_utils/    # Utility tests
-│   ├── integration/       # Integration tests
-│   │   ├── test_api/      # API endpoint tests
-│   │   ├── test_mcp/      # MCP server tests
-│   │   └── test_db/       # Database tests
-│   ├── e2e/               # End-to-end tests
-│   ├── performance/       # Performance tests
-│   └── fixtures/          # Test data and utilities
 ```
 
 ## 🔧 Configuration
 
-### pyproject.toml
+### pytest.ini
 
-```toml
-[tool.pytest.ini_options]
-minversion = "7.0"
-testpaths = ["tests"]
-python_files = ["test_*.py", "*_test.py"]
-python_classes = ["Test*"]
-python_functions = ["test_*"]
-addopts = [
-    "-ra",
-    "--strict-markers",
-    "--strict-config",
-    "--cov=src",
-    "--cov-branch",
-    "--cov-report=term-missing:skip-covered",
-    "--cov-report=html:htmlcov",
-    "--cov-report=xml",
-    "--cov-fail-under=80",
-    "--import-mode=importlib",  # Modern import mode
-    "-v"
-]
-markers = [
-    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "unit: marks tests as unit tests",
-    "integration: marks tests as integration tests",
-    "e2e: marks tests as end-to-end tests",
-    "mcp: marks tests as MCP-related",
-    "api: marks tests as API-related",
-    "db: marks tests as database-related",
-    "asyncio: marks tests as async",
-]
-asyncio_mode = "auto"
+```ini
+[pytest]
+# Minimum pytest version required
+minversion = 8.0
 
-[tool.coverage.run]
-source = ["src"]
-omit = [
-    "*/tests/*",
-    "*/migrations/*",
-    "*/__pycache__/*",
-    "*/venv/*",
-]
+# Default command line options
+addopts = 
+    -ra
+    --strict-markers
+    --import-mode=importlib
+    --tb=short
+    --cov=src
+    --cov-report=term-missing:skip-covered
+    --cov-report=html
+    --cov-report=xml
+    --cov-fail-under=80
 
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if __name__ == .__main__.:",
-    "if TYPE_CHECKING:",
-    "@abstractmethod",
-]
+# Test discovery paths
+testpaths = tests
+
+# Test discovery patterns
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+
+# Required plugins
+required_plugins = 
+    pytest-asyncio>=0.21.0
+    pytest-timeout>=2.1.0
+    pytest-mock>=3.10.0
+    pytest-cov>=4.0.0
+
+# Test markers
+markers =
+    # Priority markers
+    critical: Critical priority tests that must pass
+    high: High priority tests
+    standard: Standard priority tests
+    nice_to_have: Nice-to-have tests
+    
+    # Test type markers
+    unit: Fast, isolated unit tests
+    integration: Integration tests requiring external resources
+    e2e: End-to-end workflow tests
+    performance: Performance benchmark tests
+    
+    # Speed markers
+    slow: Tests that take > 1s to run
+    
+    # Feature markers
+    websocket: Tests involving WebSocket functionality
+    sse: Tests involving Server-Sent Events
+    mcp: Tests for MCP functionality
+    rag: Tests for RAG functionality
+
+# Async configuration
+asyncio_mode = auto
 ```
 
 ## 🧪 Testing Patterns
 
-### 1. Service Layer Testing
+### 1. Service Layer Testing with Enhanced Patterns
 
 ```python
-# tests/unit/test_services/test_project_service.py
+# tests/unit/test_services/test_projects/test_project_service.py
 import pytest
-from unittest.mock import Mock, AsyncMock
-from src.services.project_service import ProjectService
-from src.models.project import Project
+from unittest.mock import Mock, AsyncMock, MagicMock
+from tests.fixtures.mock_data import ProjectFactory, ProjectBuilder
+from tests.fixtures.test_helpers import (
+    assert_valid_project_state,
+    assert_api_response_valid,
+    assert_called_with_subset,
+    PerformanceTimer
+)
 
+@pytest.mark.unit
+@pytest.mark.critical
 class TestProjectService:
-    """Test cases for ProjectService business logic."""
+    """Unit tests for ProjectService with enhanced patterns."""
     
     @pytest.fixture
-    def mock_db(self):
-        """Mock database dependency."""
-        return Mock()
+    def mock_supabase_client(self):
+        """Mock Supabase client with chained method support."""
+        mock = MagicMock()
+        # Setup chainable methods
+        for method in ["table", "select", "insert", "eq", "execute"]:
+            setattr(mock, method, MagicMock(return_value=mock))
+        return mock
     
     @pytest.fixture
-    def project_service(self, mock_db):
+    def project_service(self, mock_supabase_client):
         """Create ProjectService instance with mocked dependencies."""
-        return ProjectService(db=mock_db)
+        return ProjectService(supabase_client=mock_supabase_client)
     
-    def test_create_project_with_valid_data_should_succeed(self, project_service, mock_db):
-        """Test that creating a project with valid data returns expected result."""
+    @pytest.mark.parametrize("title,prd,github_repo,expected_success", [
+        pytest.param("Valid Project", {"description": "Test"}, "org/repo", True, id="valid-all-fields"),
+        pytest.param("Minimal Project", None, None, True, id="valid-minimal"),
+        pytest.param("", None, None, False, id="invalid-empty-title"),
+        pytest.param(None, None, None, False, id="invalid-none-title"),
+    ])
+    def test_create_project_validation(
+        self, project_service, mock_supabase_client, title, prd, github_repo, expected_success
+    ):
+        """Test project creation with various input combinations."""
         # Arrange
-        project_data = {
-            "title": "Test Project",
-            "description": "Test Description"
-        }
-        expected_project = Project(id="123", **project_data)
-        mock_db.create.return_value = expected_project
+        if expected_success:
+            mock_project = ProjectFactory.create(title=title)
+            mock_supabase_client.execute.return_value = MagicMock(data=[mock_project])
         
         # Act
-        result = project_service.create_project(**project_data)
+        success, result = project_service.create_project(
+            title=title, prd=prd, github_repo=github_repo
+        )
         
         # Assert
-        assert result.id == "123"
-        assert result.title == "Test Project"
-        mock_db.create.assert_called_once_with("projects", project_data)
+        assert success == expected_success
+        
+        if expected_success:
+            assert_valid_project_state(result["project"])
+            assert_called_with_subset(mock_supabase_client.insert, title=title)
+        else:
+            assert_api_response_valid(result, success=False)
+            assert "title is required" in result["error"]
     
-    def test_create_project_with_empty_title_should_raise_validation_error(self, project_service):
-        """Test that creating a project with empty title raises ValidationError."""
-        # Arrange
-        project_data = {"title": "", "description": "Test"}
+    @pytest.mark.slow
+    @pytest.mark.performance
+    def test_list_projects_performance_with_large_datasets(
+        self, project_service, mock_supabase_client
+    ):
+        """Test list_projects performance with large datasets."""
+        # Arrange - Use builder pattern for complex test data
+        test_scenario = (ProjectBuilder()
+            .with_title("Performance Test Project")
+            .with_tasks(count=100)
+            .with_documents(count=50)
+            .build())
+        
+        mock_supabase_client.execute.return_value = MagicMock(
+            data=[test_scenario['project']]
+        )
         
         # Act & Assert
-        with pytest.raises(ValidationError) as exc_info:
-            project_service.create_project(**project_data)
+        with PerformanceTimer("list_projects", threshold=0.1):
+            success, result = project_service.list_projects()
         
-        assert "Title cannot be empty" in str(exc_info.value)
+        assert success is True
 ```
 
-### 2. API Endpoint Testing
+### 2. Async Testing with Proper Patterns
 
 ```python
-# tests/integration/test_api/test_knowledge_api.py
+# tests/unit/test_services/test_projects/test_task_service.py
 import pytest
-from httpx import AsyncClient
-from unittest.mock import patch, AsyncMock
+from tests.fixtures.test_helpers import assert_async_timeout, assert_websocket_receives
 
-@pytest.mark.asyncio
-class TestKnowledgeAPI:
-    """Integration tests for knowledge management API endpoints."""
+@pytest.mark.unit
+@pytest.mark.critical
+class TestTaskService:
+    """Unit tests for TaskService with async patterns."""
     
-    async def test_upload_document_endpoint_with_valid_file_should_return_success(
-        self, async_client: AsyncClient, mock_storage_service
+    @pytest.mark.asyncio
+    @pytest.mark.timeout(5)
+    async def test_create_task_with_websocket_notification(
+        self, task_service, mock_websocket_manager
     ):
-        """Test document upload with valid file returns success response."""
+        """Test task creation broadcasts WebSocket notification."""
         # Arrange
-        test_file = ("test.pdf", b"PDF content", "application/pdf")
-        mock_storage_service.store_document.return_value = {
-            "document_id": "doc-123",
-            "chunks": 5
-        }
+        task_data = TaskFactory.create()
+        mock_websocket_manager.broadcast = AsyncMock()
         
         # Act
-        response = await async_client.post(
-            "/api/documents/upload",
-            files={"file": test_file},
-            data={"knowledge_type": "technical"}
+        success, result = await task_service.create_task(
+            project_id="proj_123",
+            title="Test Task"
         )
         
         # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert data["document_id"] == "doc-123"
-        assert data["status"] == "success"
-        assert data["chunks_created"] == 5
-    
-    @pytest.mark.parametrize("file_type,mime_type,should_succeed", [
-        ("test.pdf", "application/pdf", True),
-        ("test.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", True),
-        ("test.exe", "application/x-executable", False),
-        ("test.zip", "application/zip", False),
-    ])
-    async def test_upload_document_with_various_file_types(
-        self, async_client: AsyncClient, file_type, mime_type, should_succeed
-    ):
-        """Test document upload with various file types."""
-        # Arrange
-        test_file = (file_type, b"Content", mime_type)
+        assert success is True
         
-        # Act
-        response = await async_client.post(
-            "/api/documents/upload",
-            files={"file": test_file}
+        # Verify WebSocket broadcast with timeout
+        await assert_async_timeout(
+            mock_websocket_manager.broadcast.assert_called_once(),
+            timeout=1.0,
+            error_msg="WebSocket broadcast not called"
         )
-        
-        # Assert
-        if should_succeed:
-            assert response.status_code == 200
-        else:
-            assert response.status_code == 400
-            assert "Unsupported file type" in response.json()["detail"]
 ```
 
-### 3. MCP Server Testing
+### 3. Test Data Builders
 
 ```python
-# tests/integration/test_mcp/test_mcp_server.py
-import pytest
-from src.mcp_server import ArchonMCPServer
-from mcp.types import Tool, TextContent
+# tests/fixtures/mock_data.py
+class ProjectBuilder:
+    """Builder pattern for creating complex project test data."""
+    
+    def __init__(self):
+        self._project = ProjectFactory.create()
+        self._tasks = []
+        self._documents = []
+    
+    def with_title(self, title: str) -> 'ProjectBuilder':
+        self._project['title'] = title
+        return self
+    
+    def with_task_hierarchy(self, depth: int = 2, width: int = 3) -> 'ProjectBuilder':
+        """Add hierarchical tasks to the project."""
+        # Implementation creates nested tasks
+        return self
+    
+    def build(self) -> Dict[str, Any]:
+        return {
+            'project': self._project,
+            'tasks': self._tasks,
+            'documents': self._documents
+        }
 
-@pytest.mark.asyncio
-class TestMCPServer:
-    """Integration tests for MCP server functionality."""
-    
-    @pytest.fixture
-    async def mcp_server(self, mock_dependencies):
-        """Create and initialize MCP server with mocked dependencies."""
-        server = ArchonMCPServer()
-        await server.initialize(mock_dependencies)
-        yield server
-        await server.shutdown()
-    
-    async def test_mcp_server_initialization_loads_all_expected_tools(self, mcp_server):
-        """Test that MCP server loads all expected tools on initialization."""
-        # Act
-        tools = await mcp_server.list_tools()
-        
-        # Assert
-        expected_tools = [
-            "health_check", "session_info",
-            "perform_rag_query", "search_code_examples",
-            "manage_project", "manage_task", "manage_document"
-        ]
-        tool_names = [tool.name for tool in tools]
-        
-        for expected in expected_tools:
-            assert expected in tool_names
-        
-        assert len(tools) >= 14  # Minimum expected tools
-    
-    async def test_health_check_tool_returns_system_status(self, mcp_server):
-        """Test health_check tool returns comprehensive system status."""
-        # Act
-        result = await mcp_server.call_tool("health_check", {})
-        
-        # Assert
-        assert isinstance(result, list)
-        assert len(result) > 0
-        assert isinstance(result[0], TextContent)
-        
-        health_data = json.loads(result[0].text)
-        assert health_data["status"] in ["healthy", "degraded", "unhealthy"]
-        assert "database_ready" in health_data
-        assert "crawler_ready" in health_data
+# Usage in tests
+test_project = (ProjectBuilder()
+    .with_title("Complex Project")
+    .with_task_hierarchy(depth=3)
+    .with_documents(count=5)
+    .build())
 ```
 
-### 4. Fixture Best Practices
+### 4. Domain-Specific Assertions
 
 ```python
-# tests/conftest.py
-import pytest
-import asyncio
-from typing import AsyncGenerator, Generator
-from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from unittest.mock import Mock, AsyncMock
+# tests/fixtures/test_helpers.py
+def assert_valid_project_state(project: Dict[str, Any]) -> None:
+    """Assert project is in a valid state."""
+    assert_valid_uuid(project['id'], "Project ID")
+    assert project.get('title', '').strip(), "Project title cannot be empty"
+    assert project.get('status') in ['active', 'archived', 'draft']
+    assert project['created_at'] <= project['updated_at']
 
-# Configure async test support
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    policy = asyncio.get_event_loop_policy()
-    loop = policy.new_event_loop()
-    yield loop
-    loop.close()
-
-# Database fixtures
-@pytest.fixture(scope="function")
-async def test_db() -> AsyncGenerator[AsyncSession, None]:
-    """Create a test database session with transaction rollback."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    async with AsyncSession(engine) as session:
-        yield session
-        await session.rollback()
-    
-    await engine.dispose()
-
-# API client fixtures
-@pytest.fixture(scope="function")
-async def async_client(test_db) -> AsyncGenerator[AsyncClient, None]:
-    """Create an async test client with dependency overrides."""
-    from src.main import app
-    from src.dependencies import get_db
-    
-    app.dependency_overrides[get_db] = lambda: test_db
-    
-    async with AsyncClient(app=app, base_url="http://test") as client:
-        yield client
-    
-    app.dependency_overrides.clear()
-
-# Service mocks
-@pytest.fixture
-def mock_openai_service():
-    """Mock OpenAI service for embedding and completion tests."""
-    mock = AsyncMock()
-    mock.create_embedding.return_value = [0.1] * 1536
-    mock.create_completion.return_value = "Test response"
-    return mock
-
-@pytest.fixture
-def mock_storage_service():
-    """Mock storage service for document operations."""
-    mock = AsyncMock()
-    mock.store_document.return_value = {"document_id": "test-123", "chunks": 5}
-    mock.retrieve_document.return_value = {"content": "Test content"}
-    return mock
-
-# Test data factories
-@pytest.fixture
-def project_factory():
-    """Factory for creating test project data."""
-    def _create_project(**kwargs):
-        defaults = {
-            "title": "Test Project",
-            "description": "Test Description",
-            "status": "active",
-            "created_by": "test-user"
-        }
-        defaults.update(kwargs)
-        return defaults
-    return _create_project
-
-@pytest.fixture
-def document_factory():
-    """Factory for creating test document data."""
-    def _create_document(**kwargs):
-        defaults = {
-            "title": "Test Document",
-            "content": "This is test content for RAG testing.",
-            "metadata": {
-                "source": "test",
-                "type": "text",
-                "chunk_size": 1000
-            }
-        }
-        defaults.update(kwargs)
-        return defaults
-    return _create_document
+def assert_task_hierarchy_valid(tasks: List[Dict[str, Any]]) -> None:
+    """Assert task parent-child relationships are valid."""
+    task_ids = {t['id'] for t in tasks}
+    for task in tasks:
+        if task.get('parent_task_id'):
+            assert task['parent_task_id'] in task_ids
 ```
+
+## 🧪 Test Categories by Priority
+
+### Critical Priority Tests (137 cases)
+- **ProjectService** (15 cases): CRUD, validation, linked sources
+- **TaskService** (14 cases): Status transitions, subtasks, archiving, WebSocket
+- **DocumentService** (12 cases): JSONB operations, version snapshots
+- **CredentialService** (13 cases): Encryption/decryption, environment variables
+- **MCPClientService** (12 cases): SSE transport, tool execution, auto-reconnection
+- **VersioningService** (10 cases): Version history, restoration
+- **MCPSessionManager** (12 cases): Session lifecycle, expiration
+- **CrawlingService** (11 cases): Single/batch crawling, robots.txt
+- **DocumentStorageService** (13 cases): Chunking, embeddings, batch operations
+- **SearchService** (13 cases): Vector search, reranking, hybrid search
+- **Utils** (12 cases): Embeddings, Supabase client, text extraction
+
+### High Priority Tests (20 cases)
+- **PromptService** (10 cases): Singleton pattern, template caching
+- **SourceManagementService** (10 cases): Source CRUD, metadata management
+
+### Standard Priority Tests (78+ cases)
+- **BaseAgent** (10 cases): Rate limiting, streaming, timeout handling
+- **DocumentAgent** (8 cases): Conversational document interactions
+- **RagAgent** (12 cases): Search and retrieval operations
+- **API Endpoints**: Projects, Settings, Knowledge, MCP, Agent Chat
 
 ## 🚀 Testing Commands
 
-### Running Tests
+### Using the Custom Test Runner
+
+```bash
+# Run all tests with the custom runner
+python tests/run_tests.py
+
+# Run by test type
+python tests/run_tests.py --type unit
+python tests/run_tests.py --type integration
+python tests/run_tests.py --type e2e
+
+# Run by priority
+python tests/run_tests.py --priority critical
+python tests/run_tests.py --priority high
+
+# Combine filters
+python tests/run_tests.py --type unit --priority critical
+
+# Run with coverage
+python tests/run_tests.py --coverage
+```
+
+### Direct pytest Commands
 
 ```bash
 # Run all tests
-pytest
+PYTHONPATH=/workspace/python pytest
 
-# Run with coverage
-pytest --cov=src --cov-report=html
+# Run with specific markers
+pytest -m "critical and not slow"
+pytest -m "websocket or sse"
 
-# Run specific test categories
-pytest -m unit              # Unit tests only
-pytest -m integration       # Integration tests only
-pytest -m "not slow"       # Skip slow tests
-
-# Run specific test file or directory
-pytest tests/unit/test_services/
-pytest tests/unit/test_services/test_project_service.py::TestProjectService::test_create_project_with_valid_data_should_succeed
+# Run specific test files
+pytest tests/unit/test_services/test_projects/
 
 # Run with different verbosity
-pytest -v     # Verbose output
-pytest -vv    # Very verbose output
-pytest -q     # Quiet mode
+pytest -v     # Verbose
+pytest -vv    # Very verbose
+pytest -q     # Quiet
 
-# Run tests in parallel
-pytest -n auto  # Requires pytest-xdist
-
-# Run with specific Python warnings
-pytest -W error  # Treat warnings as errors
-```
-
-### Debugging Tests
-
-```bash
-# Drop into debugger on failure
-pytest --pdb
-
-# Show local variables on failure
-pytest -l
-
-# Show full diff on assertion failure
-pytest -vv
-
-# Run only last failed tests
-pytest --lf
-
-# Run failed tests first, then others
-pytest --ff
+# Debugging
+pytest --pdb  # Drop into debugger on failure
+pytest -l     # Show local variables
+pytest --lf   # Run last failed
+pytest --ff   # Run failed first
 ```
 
 ## 📊 Code Coverage
 
-### Coverage Requirements
-
-- **Overall Coverage**: Minimum 80%
-- **Critical Paths**: 95%+ (authentication, payments, data operations)
-- **New Code**: 90%+ coverage required for all PRs
+### Coverage Goals
+- **Overall**: 80% minimum
+- **Critical Services**: 95% minimum
+- **API Endpoints**: 90% minimum
+- **New Code**: 90%+ required
 
 ### Coverage Reports
 
 ```bash
-# Generate HTML coverage report
+# Generate HTML report
 pytest --cov=src --cov-report=html
-# Open htmlcov/index.html in browser
+# Open htmlcov/index.html
 
-# Generate terminal report
+# Terminal report with missing lines
 pytest --cov=src --cov-report=term-missing
 
-# Generate XML for CI/CD
+# XML for CI/CD
 pytest --cov=src --cov-report=xml
 
-# Check coverage thresholds
+# Enforce coverage threshold
 pytest --cov=src --cov-fail-under=80
 ```
 
-## 🔄 CI/CD Integration
+## 🔄 WebSocket Test Integration
 
-### GitHub Actions Workflow
+The test suite integrates with Archon's UI through WebSocket connections:
 
-```yaml
-name: Python Tests
-
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
-
-    steps:
-    - uses: actions/checkout@v4
+```python
+# src/api/tests_api.py
+async def execute_mcp_tests(execution_id: str) -> TestExecution:
+    """Execute Python tests with real-time streaming."""
+    cmd = [
+        "python", "tests/run_tests.py",
+        "--type", "unit",
+        "--no-capture",
+        "--verbose"
+    ]
     
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e ".[test]"
-    
-    - name: Run tests with coverage
-      run: |
-        pytest --cov=src --cov-report=xml --cov-report=term
-    
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./coverage.xml
-        fail_ci_if_error: true
+    # Stream results to UI via WebSocket
+    async for line in process.stdout:
+        await websocket_manager.broadcast_test_update(
+            execution_id=execution_id,
+            output=line.decode()
+        )
 ```
 
-## 🎯 Testing Checklist
+## 🎯 Best Practices We Follow
 
-### For New Features
+1. **Single Responsibility**: Each test verifies ONE behavior
+2. **Descriptive Names**: `test_<method>_<scenario>_<expected_result>`
+3. **AAA Pattern**: Arrange, Act, Assert structure
+4. **Proper Mocking**: Always use `autospec=True`
+5. **Parametrization**: Use `@pytest.mark.parametrize` for test variations
+6. **Async Timeouts**: Explicit timeouts for all async tests
+7. **Performance Tests**: Monitor for regressions
+8. **Test Isolation**: No dependencies between tests
 
-- [ ] Write unit tests for all new functions/methods
-- [ ] Write integration tests for API endpoints
-- [ ] Add edge case tests
-- [ ] Add error handling tests
-- [ ] Update or add fixtures as needed
-- [ ] Ensure 90%+ coverage for new code
-- [ ] Run full test suite locally
-- [ ] Update documentation
+## 📚 Additional Resources
 
-### For Bug Fixes
-
-- [ ] Write a failing test that reproduces the bug
-- [ ] Fix the bug
-- [ ] Ensure test now passes
-- [ ] Add regression tests
-- [ ] Check for similar issues elsewhere
-- [ ] Run related test suites
-
-## 📚 Best Practices Summary
-
-1. **Use Descriptive Test Names**: Test names should describe what is being tested and expected outcome
-2. **Follow AAA Pattern**: Arrange, Act, Assert for clear test structure
-3. **One Assertion Per Test**: Keep tests focused on single behavior
-4. **Use Fixtures Wisely**: Share setup code but avoid over-coupling
-5. **Mock External Dependencies**: Keep tests fast and deterministic
-6. **Parameterize Similar Tests**: Use `@pytest.mark.parametrize` for test variations
-7. **Test Edge Cases**: Include boundary conditions and error scenarios
-8. **Keep Tests Fast**: Aim for entire suite to run in under 5 minutes
-9. **Use Markers**: Organize tests with markers for selective execution
-10. **Continuous Improvement**: Regularly review and refactor tests
-
----
-
-For more details, see:
-- [Testing Overview](./testing) - General testing documentation
-- [Vitest Strategy](./testing-vitest-strategy) - Frontend testing with Vitest
-- [API Reference](./api-reference) - API endpoint documentation
+- [Test Style Guide](../TEST_STYLE_GUIDE.md)
+- [Pytest Best Practices Review](../PYTEST_BEST_PRACTICES_REVIEW.md)
+- [Testing Overview](./testing)
+- [Official pytest Documentation](https://docs.pytest.org/)
