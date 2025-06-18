@@ -5,11 +5,11 @@ sidebar_position: 8
 
 # Testing Guide
 
-Archon employs a comprehensive testing strategy covering unit tests, integration tests, end-to-end tests, and performance testing across all components of the system.
+Archon employs a comprehensive testing strategy with **235+ test cases** covering unit tests, integration tests, end-to-end tests, and performance testing across all components of the system.
 
 ## 🧪 Testing Philosophy
 
-Our testing approach follows the testing pyramid:
+Our testing approach follows the testing pyramid with extensive coverage:
 
 ```mermaid
 %%{init:{
@@ -30,9 +30,9 @@ Our testing approach follows the testing pyramid:
 }}%%
 graph TB
     subgraph "Testing Pyramid"
-        E2E["E2E Tests<br/>🔍 User Journeys<br/>Selenium/Playwright"]
+        E2E["E2E Tests<br/>🔍 User Journeys<br/>WebSocket/API Integration"]
         Integration["Integration Tests<br/>🔗 API & Database<br/>FastAPI TestClient"]
-        Unit["Unit Tests<br/>⚡ Functions & Classes<br/>pytest + mocks"]
+        Unit["Unit Tests (235+ cases)<br/>⚡ Services & Components<br/>pytest + AsyncMock"]
     end
 
     Unit --> Integration
@@ -44,31 +44,32 @@ graph TB
 ```
 python/
 ├── tests/                   # Backend test suite
-│   ├── unit/                # Unit tests
-│   │   ├── test_auth.py
-│   │   ├── test_vector_store.py
-│   │   ├── test_mcp_client.py
-│   │   ├── test_rag_pipeline.py
-│   │   └── test_utils.py
+│   ├── unit/                # Unit tests (235+ test cases)
+│   │   ├── test_agents/     # Agent tests (BaseAgent, DocumentAgent, RagAgent)
+│   │   ├── test_api/        # API endpoint tests
+│   │   ├── test_models/     # Model validation tests
+│   │   ├── test_modules/    # Module tests (project, rag)
+│   │   ├── test_services/   # Service layer tests
+│   │   │   ├── test_projects/   # Project service tests
+│   │   │   └── test_rag/        # RAG service tests
+│   │   └── test_utils/      # Utility function tests
 │   ├── integration/         # Integration tests
-│   │   ├── test_api_endpoints.py
-│   │   ├── test_database.py
-│   │   ├── test_mcp_server.py
-│   │   └── test_websockets.py
+│   │   ├── test_api/        # API integration tests
+│   │   ├── test_database/   # Database integration
+│   │   ├── test_mcp/        # MCP integration
+│   │   └── test_websockets/ # WebSocket tests
 │   ├── e2e/                 # End-to-end tests
-│   │   ├── test_user_flows.py
-│   │   ├── test_document_upload.py
-│   │   └── test_chat_interface.py
+│   │   ├── test_workflows/  # Complete user workflows
+│   │   └── test_mcp_tools/  # MCP tool integration
 │   ├── performance/         # Performance tests
-│   │   ├── test_load.py
-│   │   └── test_stress.py
-│   ├── fixtures/            # Test data
-│   │   ├── sample_documents/
-│   │   ├── mock_responses/
-│   │   └── test_data.json
+│   │   └── test_performance.py
+│   ├── fixtures/            # Test fixtures and data
+│   │   ├── mock_data.py     # Factory patterns for test data
+│   │   └── test_helpers.py  # Testing utilities
 │   ├── conftest.py         # Pytest configuration
-│   └── requirements-test.txt # Test dependencies
-│   └── pytest.ini         # Pytest settings
+│   ├── pytest.ini          # Pytest settings
+│   ├── .coveragerc         # Coverage configuration
+│   └── run_tests.py        # Test runner with filtering
 ├── src/                     # Application source code
 └── pyproject.toml          # Python project configuration
 ```
@@ -81,37 +82,56 @@ python/
 # Navigate to python directory
 cd python
 
-# Install test dependencies
-pip install -r requirements-test.txt
+# Install dependencies using uv
+uv sync
 
-# Or install with development dependencies
-pip install -e ".[dev]"
+# Or install test dependencies manually
+uv pip install pytest pytest-asyncio pytest-cov pytest-timeout pytest-mock
 ```
 
 ### Running Tests
 
 ```bash
-# Run all tests (from python/ directory)
-pytest
+# Run all tests using the test runner
+python tests/run_tests.py
 
-# Run with coverage
-pytest --cov=src --cov-report=html
+# Run tests by type
+python tests/run_tests.py --type unit
+python tests/run_tests.py --type integration
+python tests/run_tests.py --type e2e
 
-# Run specific test categories
-pytest tests/unit/          # Unit tests only
-pytest tests/integration/   # Integration tests only
-pytest tests/e2e/          # E2E tests only
+# Run tests by priority
+python tests/run_tests.py --priority critical
+python tests/run_tests.py --priority high
+python tests/run_tests.py --priority standard
+
+# Run with coverage report
+python tests/run_tests.py --coverage
+
+# Run specific test categories with pytest directly
+PYTHONPATH=/workspace/python pytest tests/unit/test_services/ -v
+PYTHONPATH=/workspace/python pytest tests/unit/test_api/ -v
 
 # Run tests with specific markers
 pytest -m "not slow"       # Skip slow tests
-pytest -m "api"            # Run API tests only
-pytest -m "database"       # Run database tests only
+pytest -m "critical"       # Run critical tests only
+pytest -m "websocket"      # Run WebSocket tests only
 ```
 
-### Test Configuration
+### Running Tests from UI
+
+The Archon UI Settings page provides a test runner interface that connects via WebSocket to stream test results in real-time:
+
+1. Navigate to Settings page in the UI
+2. Click on "Run Tests" button
+3. Select test type (Unit Tests or UI Tests)
+4. View real-time test output and results
+
+## 🔧 Test Configuration
+
+### pytest.ini
 
 ```ini
-# python/pytest.ini
 [tool:pytest]
 minversion = 6.0
 addopts = 
@@ -125,854 +145,207 @@ addopts =
     --cov-report=xml
     --cov-fail-under=80
 testpaths = tests
+python_files = test_*.py
+python_classes = Test*
+python_functions = test_*
+asyncio_mode = auto
+asyncio_default_fixture_loop_scope = function
 markers =
     slow: marks tests as slow (deselect with '-m "not slow"')
-    api: marks tests as API tests
-    database: marks tests as database tests
-    mcp: marks tests as MCP-related tests
-    rag: marks tests as RAG-related tests
-    auth: marks tests as authentication tests
-    websocket: marks tests as WebSocket tests
+    critical: critical functionality tests
+    high: high priority tests
+    standard: standard priority tests
+    nice_to_have: nice to have tests
+    unit: unit tests
+    integration: integration tests
+    e2e: end-to-end tests
+    performance: performance tests
+    websocket: WebSocket-related tests
+    mcp: MCP-related tests
+    rag: RAG-related tests
+    auth: authentication tests
 ```
 
-## 🔧 Test Configuration & Fixtures
-
-### conftest.py
-
-```python
-# python/tests/conftest.py
-import pytest
-import asyncio
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from unittest.mock import Mock, patch
-
-from src.main import app
-from src.database import get_db, Base
-from src.config import Settings
-from src.auth import get_current_user
-
-# Test database setup
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create an instance of the default event loop for the test session."""
-    loop = asyncio.get_event_loop_policy().new_event_loop()
-    yield loop
-    loop.close()
-
-@pytest.fixture(scope="function")
-def db_session():
-    """Create a fresh database session for each test."""
-    Base.metadata.create_all(bind=engine)
-    session = TestingSessionLocal()
-    try:
-        yield session
-    finally:
-        session.close()
-        Base.metadata.drop_all(bind=engine)
-
-@pytest.fixture(scope="function")
-def client(db_session):
-    """Create a test client with dependency overrides."""
-    def override_get_db():
-        try:
-            yield db_session
-        finally:
-            db_session.close()
-
-    def override_get_current_user():
-        return {"id": "test-user", "email": "test@example.com"}
-
-    app.dependency_overrides[get_db] = override_get_db
-    app.dependency_overrides[get_current_user] = override_get_current_user
-
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
-
-@pytest.fixture
-def mock_openai():
-    """Mock OpenAI API calls."""
-    with patch("openai.Embedding.create") as mock_embed, \
-         patch("openai.ChatCompletion.create") as mock_chat:
-
-        mock_embed.return_value = {
-            "data": [{"embedding": [0.1] * 1536}]
-        }
-
-        mock_chat.return_value = {
-            "choices": [{
-                "message": {
-                    "content": "Test response from OpenAI"
-                }
-            }]
-        }
-
-        yield {"embed": mock_embed, "chat": mock_chat}
-
-@pytest.fixture
-def mock_supabase():
-    """Mock Supabase client."""
-    mock_client = Mock()
-    mock_client.table.return_value.insert.return_value.execute.return_value = {
-        "data": [{"id": 1, "content": "test"}]
-    }
-    mock_client.table.return_value.select.return_value.execute.return_value = {
-        "data": [{"id": 1, "content": "test", "embedding": [0.1] * 1536}]
-    }
-    return mock_client
-
-@pytest.fixture
-def sample_document():
-    """Sample document for testing."""
-    return {
-        "title": "Test Document",
-        "content": "This is a test document for RAG testing.",
-        "metadata": {
-            "source": "test",
-            "type": "text"
-        }
-    }
-```
-
-## 🧪 Unit Tests
-
-### Authentication Tests
-
-```python
-# python/tests/unit/test_auth.py
-import pytest
-from unittest.mock import patch, Mock
-from src.auth import create_access_token, verify_token, hash_password, verify_password
-
-class TestAuthentication:
-
-    def test_create_access_token(self):
-        """Test JWT token creation."""
-        data = {"sub": "test@example.com"}
-        token = create_access_token(data)
-
-        assert isinstance(token, str)
-        assert len(token) > 0
-
-    def test_verify_token_valid(self):
-        """Test token verification with valid token."""
-        data = {"sub": "test@example.com"}
-        token = create_access_token(data)
-
-        payload = verify_token(token)
-        assert payload["sub"] == "test@example.com"
-
-    def test_verify_token_invalid(self):
-        """Test token verification with invalid token."""
-        with pytest.raises(ValueError):
-            verify_token("invalid.token.here")
-
-    def test_password_hashing(self):
-        """Test password hashing and verification."""
-        password = "test_password_123"
-        hashed = hash_password(password)
-
-        assert hashed != password
-        assert verify_password(password, hashed) is True
-        assert verify_password("wrong_password", hashed) is False
-```
-
-### Vector Store Tests
-
-```python
-# python/tests/unit/test_vector_store.py
-import pytest
-import numpy as np
-from unittest.mock import Mock, patch
-from src.vector_store import VectorStore, generate_embedding, search_similar
-
-class TestVectorStore:
-
-    @pytest.fixture
-    def vector_store(self, mock_supabase):
-        """Create vector store instance with mocked dependencies."""
-        return VectorStore(client=mock_supabase)
-
-    def test_generate_embedding(self, mock_openai):
-        """Test embedding generation."""
-        text = "This is a test document"
-        embedding = generate_embedding(text)
-
-        assert isinstance(embedding, list)
-        assert len(embedding) == 1536
-        assert all(isinstance(x, float) for x in embedding)
-
-    def test_search_similar(self, vector_store, mock_supabase):
-        """Test similarity search."""
-        query_embedding = [0.1] * 1536
-        
-        # Mock database response
-        mock_supabase.rpc.return_value.execute.return_value = {
-            "data": [
-                {
-                    "id": 1,
-                    "content": "Similar document",
-                    "similarity": 0.95
-                }
-            ]
-        }
-
-        results = vector_store.search_similar(query_embedding, limit=5)
-
-        assert len(results) == 1
-        assert results[0]["similarity"] >= 0.9
-        mock_supabase.rpc.assert_called_once()
-```
-
-### RAG Pipeline Tests
-
-```python
-# python/tests/unit/test_rag_pipeline.py
-import pytest
-from unittest.mock import Mock, patch
-from src.rag_pipeline import RAGPipeline, process_query, chunk_document
-
-class TestRAGPipeline:
-
-    @pytest.fixture
-    def rag_pipeline(self, mock_supabase, mock_openai):
-        """Create RAG pipeline with mocked dependencies."""
-        return RAGPipeline(
-            vector_store=Mock(),
-            llm_client=Mock()
-        )
-
-    def test_chunk_document(self):
-        """Test document chunking."""
-        document = "This is a long document. " * 100
-        chunks = chunk_document(document, chunk_size=200, overlap=50)
-
-        assert len(chunks) > 1
-        assert all(len(chunk) <= 250 for chunk in chunks)  # 200 + overlap
-        assert len(chunks[0]) >= 200
-
-    def test_process_query(self, rag_pipeline):
-        """Test query processing."""
-        query = "What is machine learning?"
-        
-        # Mock vector search results
-        rag_pipeline.vector_store.search_similar.return_value = [
-            {
-                "content": "Machine learning is a subset of AI...",
-                "similarity": 0.9
-            }
-        ]
-
-        # Mock LLM response
-        rag_pipeline.llm_client.chat.return_value = {
-            "choices": [{
-                "message": {
-                    "content": "Machine learning is a method of data analysis..."
-                }
-            }]
-        }
-
-        response = rag_pipeline.process_query(query)
-
-        assert "machine learning" in response.lower()
-        rag_pipeline.vector_store.search_similar.assert_called_once()
-```
-
-## 🔗 Integration Tests
-
-### API Endpoint Tests
-
-```python
-# python/tests/integration/test_api_endpoints.py
-import pytest
-import json
-from fastapi.testclient import TestClient
-
-class TestKnowledgeAPI:
-
-    def test_upload_document(self, client):
-        """Test document upload endpoint."""
-        test_file = ("test.txt", "This is test content", "text/plain")
-        
-        response = client.post(
-            "/api/documents/upload",
-            files={"file": test_file},
-            data={"knowledge_type": "technical"}
-        )
-
-        assert response.status_code == 200
-        data = response.json()
-        assert data["filename"] == "test.txt"
-        assert "document_id" in data
-
-    def test_search_knowledge(self, client, sample_document):
-        """Test knowledge search endpoint."""
-        # First upload a document
-        test_file = ("sample.txt", sample_document["content"], "text/plain")
-        upload_response = client.post(
-            "/api/documents/upload",
-            files={"file": test_file},
-            data={"knowledge_type": "technical"}
-        )
-        assert upload_response.status_code == 200
-
-        # Then search for it
-        search_response = client.post(
-            "/api/rag/query",
-            json={
-                "query": "test document",
-                "limit": 5
-            }
-        )
-
-        assert search_response.status_code == 200
-        data = search_response.json()
-        assert "results" in data
-        assert len(data["results"]) > 0
-
-    def test_list_documents(self, client):
-        """Test document listing endpoint."""
-        response = client.get("/api/knowledge-items")
-
-        assert response.status_code == 200
-        data = response.json()
-        assert "items" in data
-        assert "total" in data
-
-    def test_delete_document(self, client):
-        """Test document deletion."""
-        # Upload a document first
-        test_file = ("delete_test.txt", "Content to delete", "text/plain")
-        upload_response = client.post(
-            "/api/documents/upload",
-            files={"file": test_file}
-        )
-        
-        document_id = upload_response.json()["document_id"]
-
-        # Delete the document
-        delete_response = client.delete(f"/api/knowledge-items/{document_id}")
-        
-        assert delete_response.status_code == 200
-        assert "deleted" in delete_response.json()["message"].lower()
-```
-
-### Database Tests
-
-```python
-# python/tests/integration/test_database.py
-import pytest
-from src.database import get_supabase_client, create_tables, insert_document
-
-class TestDatabase:
-
-    def test_supabase_connection(self):
-        """Test Supabase connection."""
-        client = get_supabase_client()
-        
-        # Test basic operation
-        response = client.table("crawled_pages").select("*").limit(1).execute()
-        assert "data" in response
-
-    def test_insert_document(self, sample_document):
-        """Test document insertion."""
-        client = get_supabase_client()
-        
-        result = insert_document(
-            client=client,
-            content=sample_document["content"],
-            metadata=sample_document["metadata"],
-            embedding=[0.1] * 1536
-        )
-
-        assert result["success"] is True
-        assert "id" in result
-
-    def test_vector_search(self):
-        """Test vector similarity search."""
-        client = get_supabase_client()
-        
-        query_embedding = [0.1] * 1536
-        
-        response = client.rpc(
-            "match_crawled_pages",
-            {
-                "query_embedding": query_embedding,
-                "match_count": 5,
-                "filter": {}
-            }
-        ).execute()
-
-        assert "data" in response
-        assert isinstance(response["data"], list)
-```
-
-### MCP Server Tests
-
-```python
-# python/tests/integration/test_mcp_server.py
-import pytest
-import asyncio
-import json
-from unittest.mock import Mock
-from src.mcp_server import MCPServer
-
-class TestMCPServer:
-
-    @pytest.fixture
-    async def mcp_server(self):
-        """Create MCP server instance."""
-        server = MCPServer()
-        await server.initialize()
-        return server
-
-    @pytest.mark.asyncio
-    async def test_search_tool(self, mcp_server):
-        """Test MCP search tool."""
-        request = {
-            "tool": "search_knowledge",
-            "arguments": {
-                "query": "test query",
-                "limit": 5
-            }
-        }
-
-        response = await mcp_server.call_tool(request)
-
-        assert response["success"] is True
-        assert "results" in response
-
-    @pytest.mark.asyncio
-    async def test_create_task_tool(self, mcp_server):
-        """Test MCP task creation tool."""
-        request = {
-            "tool": "create_task",
-            "arguments": {
-                "title": "Test Task",
-                "description": "This is a test task",
-                "project_id": "test-project"
-            }
-        }
-
-        response = await mcp_server.call_tool(request)
-
-        assert response["success"] is True
-        assert response["task"]["title"] == "Test Task"
-```
-
-## 🌐 End-to-End Tests
-
-### User Flow Tests
-
-```python
-# python/tests/e2e/test_user_flows.py
-import pytest
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-
-class TestUserFlows:
-
-    @pytest.fixture(scope="class")
-    def driver(self):
-        """Create web driver instance."""
-        options = webdriver.ChromeOptions()
-        options.add_argument("--headless")
-        driver = webdriver.Chrome(options=options)
-        driver.implicitly_wait(10)
-        yield driver
-        driver.quit()
-
-    def test_complete_document_workflow(self, driver):
-        """Test complete document upload and search workflow."""
-        # Navigate to application
-        driver.get("http://localhost:3737")
-
-        # Upload document
-        upload_button = driver.find_element(By.TEXT, "Upload Document")
-        upload_button.click()
-
-        file_input = driver.find_element(By.CSS_SELECTOR, "input[type='file']")
-        file_input.send_keys("/path/to/test/document.pdf")
-
-        submit_button = driver.find_element(By.TEXT, "Upload")
-        submit_button.click()
-
-        # Wait for upload completion
-        WebDriverWait(driver, 30).until(
-            EC.presence_of_element_located((By.TEXT, "Upload successful"))
-        )
-
-        # Search for uploaded document
-        search_input = driver.find_element(By.CSS_SELECTOR, "input[placeholder*='Search']")
-        search_input.send_keys("test document content")
-        search_input.submit()
-
-        # Verify search results
-        results = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CLASS_NAME, "search-results"))
-        )
-
-        assert len(results.find_elements(By.CLASS_NAME, "result-item")) > 0
-
-    def test_mcp_connection_workflow(self, driver):
-        """Test MCP connection setup workflow."""
-        driver.get("http://localhost:3737")
-
-        # Navigate to MCP settings
-        settings_link = driver.find_element(By.TEXT, "Settings")
-        settings_link.click()
-
-        mcp_tab = driver.find_element(By.TEXT, "MCP Server")
-        mcp_tab.click()
-
-        # Start MCP server
-        start_button = driver.find_element(By.TEXT, "Start MCP Server")
-        start_button.click()
-
-        # Wait for server to start
-        status_indicator = WebDriverWait(driver, 15).until(
-            EC.text_to_be_present_in_element(
-                (By.CLASS_NAME, "server-status"), "Running"
-            )
-        )
-
-        # Verify connection info is displayed
-        connection_info = driver.find_element(By.CLASS_NAME, "connection-info")
-        assert "stdio" in connection_info.text.lower()
-```
-
-## ⚡ Performance Tests
-
-### Load Testing
-
-```python
-# python/tests/performance/test_load.py
-import pytest
-import asyncio
-import aiohttp
-import time
-from concurrent.futures import ThreadPoolExecutor
-
-class TestLoadPerformance:
-
-    @pytest.mark.asyncio
-    async def test_api_concurrent_requests(self):
-        """Test API performance under concurrent load."""
-        async def make_request(session, url):
-            async with session.get(url) as response:
-                return await response.json()
-
-        async with aiohttp.ClientSession() as session:
-            tasks = []
-            for _ in range(50):  # 50 concurrent requests
-                task = make_request(session, "http://localhost:8080/api/knowledge-items")
-                tasks.append(task)
-
-            start_time = time.time()
-            responses = await asyncio.gather(*tasks)
-            end_time = time.time()
-
-            # All requests should complete within 10 seconds
-            assert end_time - start_time < 10
-            # All responses should be successful
-            assert all("items" in response for response in responses)
-
-    def test_document_upload_performance(self):
-        """Test document upload performance."""
-        import requests
-
-        # Create a test document
-        test_content = "This is test content. " * 1000  # ~20KB
-        files = {"file": ("large_test.txt", test_content, "text/plain")}
-
-        start_time = time.time()
-        response = requests.post("http://localhost:8080/api/documents/upload", files=files)
-        end_time = time.time()
-
-        upload_time = end_time - start_time
-
-        assert response.status_code == 200
-        assert upload_time < 10.0  # Upload should complete within 10 seconds
-
-    @pytest.mark.asyncio
-    async def test_search_performance(self):
-        """Test search performance with multiple queries."""
-        queries = [
-            "machine learning",
-            "artificial intelligence", 
-            "data science",
-            "python programming",
-            "web development"
-        ]
-
-        async def search_query(session, query):
-            payload = {"query": query, "limit": 10}
-            async with session.post(
-                "http://localhost:8080/api/rag/query",
-                json=payload
-            ) as response:
-                return await response.json()
-
-        async with aiohttp.ClientSession() as session:
-            start_time = time.time()
-            
-            tasks = [search_query(session, query) for query in queries]
-            results = await asyncio.gather(*tasks)
-            
-            end_time = time.time()
-
-            # All searches should complete within 5 seconds
-            assert end_time - start_time < 5.0
-            # All searches should return results
-            assert all("results" in result for result in results)
-```
-
-## 🔍 Test Coverage & Reporting
-
-### Coverage Configuration
+### Coverage Configuration (.coveragerc)
 
 ```ini
-# python/.coveragerc
 [run]
 source = src
 omit = 
-    python/src/migrations/*
-    python/tests/*
-    python/src/config.py
+    */tests/*
+    */test_*
+    */__pycache__/*
     */venv/*
-    */virtualenv/*
+    */.venv/*
+    */migrations/*
+    */alembic/*
+    */conftest.py
+    */setup.py
+    */config.py
+parallel = true
+concurrency = multiprocessing,thread
 
 [report]
+precision = 2
+show_missing = true
+skip_covered = false
+fail_under = 80
 exclude_lines =
     pragma: no cover
     def __repr__
     raise AssertionError
     raise NotImplementedError
     if __name__ == .__main__.:
-    class .*Protocol\):
-    @(abc\.)?abstractmethod
-
-[html]
-directory = htmlcov
+    if TYPE_CHECKING:
+    @abstractmethod
+    @abc.abstractmethod
 ```
 
-### Generating Reports
+## 🧪 Test Categories by Priority
 
-```bash
-# Navigate to python directory first
-cd python
+### Critical Priority Tests (137 cases)
+- **ProjectService** (15 cases): CRUD operations, validation, linked sources
+- **TaskService** (14 cases): Status transitions, subtasks, archiving, WebSocket updates
+- **DocumentService** (12 cases): JSONB operations, version snapshots
+- **CredentialService** (13 cases): Encryption/decryption, environment variables
+- **MCPClientService** (12 cases): SSE transport, tool execution, auto-reconnection
+- **VersioningService** (10 cases): Version history, restoration
+- **MCPSessionManager** (12 cases): Session lifecycle, expiration
+- **CrawlingService** (11 cases): Single/batch crawling, robots.txt
+- **DocumentStorageService** (13 cases): Chunking, embeddings, batch operations
+- **SearchService** (13 cases): Vector search, reranking, hybrid search
+- **Utils** (12 cases): Embeddings, Supabase client, text extraction
 
-# Generate coverage report
-pytest --cov=src --cov-report=html --cov-report=term
+### High Priority Tests (20 cases)
+- **PromptService** (10 cases): Singleton pattern, template caching
+- **SourceManagementService** (10 cases): Source CRUD, metadata management
 
-# Generate XML report for CI/CD
-pytest --cov=src --cov-report=xml
+### Standard Priority Tests (78+ cases)
+- **BaseAgent** (10 cases): Rate limiting, streaming, timeout handling
+- **DocumentAgent** (8 cases): Conversational document interactions
+- **RagAgent** (12 cases): Search and retrieval operations
+- **API Endpoints**: Projects, Settings, Knowledge, MCP, Agent Chat
+- **Configuration**: Environment validation, settings management
 
-# Generate detailed coverage report
-coverage report --show-missing
-```
+## 🔍 Key Testing Patterns
 
-## 🚀 Continuous Integration
-
-### GitHub Actions Workflow
-
-```yaml
-# .github/workflows/test.yml
-name: Tests
-
-on:
-  push:
-    branches: [ main, develop ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: [3.9, 3.10, 3.11]
-
-    services:
-      postgres:
-        image: postgres:13
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: test_db
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-    - uses: actions/checkout@v3
-
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v3
-      with:
-        python-version: ${{ matrix.python-version }}
-
-    - name: Install dependencies
-      run: |
-        cd python
-        python -m pip install --upgrade pip
-        pip install -r requirements-test.txt
-
-    - name: Run unit tests
-      run: |
-        cd python
-        pytest tests/unit/ --cov=src --cov-report=xml
-
-    - name: Run integration tests
-      run: |
-        cd python
-        pytest tests/integration/ --cov=src --cov-append --cov-report=xml
-      env:
-        DATABASE_URL: postgresql://postgres:postgres@localhost/test_db
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@v3
-      with:
-        file: ./python/coverage.xml
-        flags: unittests
-        name: codecov-umbrella
-```
-
-## 🛠️ Testing Best Practices
-
-### Test Organization
-
-1. **Follow AAA Pattern**: Arrange, Act, Assert
-2. **Use descriptive test names**: `test_should_return_error_when_invalid_token_provided`
-3. **One assertion per test**: Focus on testing one behavior
-4. **Use fixtures for setup**: Avoid code duplication
-5. **Mock external dependencies**: Keep tests isolated
-
-### Test Data Management
+### Async Testing
 
 ```python
-# Use factories for test data
-class DocumentFactory:
-    @staticmethod
-    def create_sample_document(**kwargs):
-        defaults = {
-            "title": "Sample Document",
-            "content": "This is sample content for testing.",
-            "metadata": {"source": "test", "type": "text"}
-        }
-        defaults.update(kwargs)
-        return defaults
+import pytest
+from unittest.mock import AsyncMock, patch
 
-# Use parametrized tests for multiple scenarios
-@pytest.mark.parametrize("input_text,expected_length", [
-    ("short", 5),
-    ("medium length text", 18),
-    ("this is a much longer text for testing", 38)
+@pytest.mark.asyncio
+async def test_async_operation(mock_service):
+    """Test async operations with proper mocking."""
+    # Arrange
+    mock_service.async_method = AsyncMock(return_value={"status": "success"})
+    
+    # Act
+    result = await mock_service.async_method()
+    
+    # Assert
+    assert result["status"] == "success"
+    mock_service.async_method.assert_called_once()
+```
+
+### Parametrized Testing
+
+```python
+@pytest.mark.parametrize("status,expected", [
+    ("todo", True),
+    ("in_progress", True),
+    ("done", False),
+    ("archived", False),
 ])
-def test_text_processing(input_text, expected_length):
-    result = process_text(input_text)
-    assert len(result) == expected_length
+def test_task_status_validation(status, expected):
+    """Test task status validation with multiple inputs."""
+    result = is_task_active(status)
+    assert result == expected
 ```
 
-### Performance Testing Guidelines
+### WebSocket Testing
 
-1. **Set realistic thresholds**: Based on production requirements
-2. **Test under load**: Simulate concurrent users
-3. **Monitor resource usage**: CPU, memory, database connections
-4. **Test edge cases**: Large files, long conversations
-5. **Automate performance tests**: Include in CI/CD pipeline
+```python
+async def test_websocket_connection(test_client):
+    """Test WebSocket connection and message handling."""
+    async with test_client.websocket_connect("/ws/test") as websocket:
+        # Send message
+        await websocket.send_json({"type": "ping"})
+        
+        # Receive response
+        response = await websocket.receive_json()
+        assert response["type"] == "pong"
+```
 
-## 🐛 Debugging Tests
+### Performance Testing
 
-### Common Issues
+```python
+@pytest.mark.slow
+@pytest.mark.performance
+async def test_bulk_operation_performance(benchmark_service):
+    """Test performance of bulk operations."""
+    items = generate_test_items(1000)
+    
+    start_time = time.time()
+    results = await benchmark_service.bulk_process(items)
+    duration = time.time() - start_time
+    
+    assert len(results) == 1000
+    assert duration < 5.0  # Should complete within 5 seconds
+```
 
+## 📊 Coverage Goals
+
+- **Overall Coverage**: 80% minimum
+- **Critical Services**: 95% minimum
+- **API Endpoints**: 90% minimum
+- **Utility Functions**: 85% minimum
+
+Current coverage can be viewed by running:
 ```bash
-# Navigate to python directory first
-cd python
-
-# Run tests with verbose output
-pytest -v
-
-# Run specific test with debugging
-pytest tests/unit/test_auth.py::test_create_access_token -v -s
-
-# Drop into debugger on failure
-pytest --pdb
-
-# Show local variables on failure
-pytest --tb=long
+python tests/run_tests.py --coverage
+# HTML report available at htmlcov/index.html
 ```
 
-### Test Environment Setup
+## 🚨 Common Issues and Solutions
 
+### Python 3.13 Compatibility
+If you encounter OpenAI library compatibility issues with Python 3.13:
 ```bash
-# Create isolated test environment
-python -m venv test_env
-source test_env/bin/activate
-cd python
-pip install -r requirements-test.txt
-
-# Run tests with environment variables
-TEST_DATABASE_URL=sqlite:///test.db pytest
+# Use Python 3.12
+uv python install 3.12
+uv venv --python 3.12
+uv sync
 ```
 
-## 🔧 Docker Testing
-
-### Running Tests in Docker
-
+### Import Errors
+Ensure PYTHONPATH is set correctly:
 ```bash
-# Build and run tests in Docker
-docker-compose run --rm archon-pyserver pytest
-
-# Run specific test suite
-docker-compose run --rm archon-pyserver pytest tests/unit/
-
-# Run with coverage
-docker-compose run --rm archon-pyserver pytest --cov=src --cov-report=html
+export PYTHONPATH=/workspace/python
+# or
+PYTHONPATH=/workspace/python pytest tests/
 ```
 
-### Test Database Setup
-
-```yaml
-# docker-compose.test.yml
-version: '3.8'
-
-services:
-  test-db:
-    image: postgres:13
-    environment:
-      POSTGRES_DB: test_archon
-      POSTGRES_USER: test_user
-      POSTGRES_PASSWORD: test_password
-    ports:
-      - "5433:5432"
-
-  archon-pyserver-test:
-    build: ./python
-    depends_on:
-      - test-db
-    environment:
-      - DATABASE_URL=postgresql://test_user:test_password@test-db:5432/test_archon
-      - TESTING=true
-    command: pytest --cov=src --cov-report=xml
-    volumes:
-      - ./python/tests:/app/tests
-      - ./python/src:/app/src
+### WebSocket Test Timeouts
+Increase timeout for WebSocket tests:
+```python
+@pytest.mark.timeout(30)  # 30 second timeout
+async def test_long_websocket_operation():
+    # test code
 ```
 
----
+## 🔄 Continuous Integration
 
-**Next Steps:**
-- Learn about [Deployment](./deployment) for production setup
-- Explore [API Reference](./api-reference) for endpoint testing
-- Check [Server Architecture](./server) for system understanding
+Tests are automatically run on:
+- Pull request creation
+- Commits to main branch
+- Nightly builds
+- Manual trigger from UI
+
+The CI pipeline includes:
+1. Unit tests with coverage report
+2. Integration tests
+3. E2E tests (if applicable)
+4. Performance benchmarks
+5. Security scanning

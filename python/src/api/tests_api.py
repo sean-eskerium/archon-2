@@ -135,15 +135,12 @@ async def execute_mcp_tests(execution_id: str) -> TestExecution:
     execution = test_executions[execution_id]
     
     try:
-        # Use pytest directly for all Python tests with verbose output and real-time streaming
+        # Use the new test runner script for better control and filtering
         cmd = [
-            "python", "-m", "pytest", 
-            "-v",  # verbose output
-            "-s",  # don't capture stdout, allows real-time output
-            "--tb=short",  # shorter traceback format
-            "tests/",  # run all tests in tests directory
-            "--no-header",  # cleaner output
-            "--disable-warnings"  # cleaner output
+            "python", "tests/run_tests.py",
+            "--type", "unit",  # Start with unit tests
+            "--no-capture",  # Don't capture stdout for real-time output
+            "--verbose"  # Verbose output
         ]
         
         logger.info(f"Starting Python test execution: {' '.join(cmd)}")
@@ -154,7 +151,7 @@ async def execute_mcp_tests(execution_id: str) -> TestExecution:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             cwd="/app",  # Use the app directory inside the container
-            env={**os.environ, "PYTHONUNBUFFERED": "1"}  # Ensure unbuffered output
+            env={**os.environ, "PYTHONUNBUFFERED": "1", "PYTHONPATH": "/app"}  # Ensure unbuffered output and correct path
         )
         
         execution.process = process
