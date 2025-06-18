@@ -75,47 +75,84 @@ class CrawlingService:
 
         return urls
 
-    async def crawl_single_page(self, url: str) -> Dict[str, Any]:
+    async def crawl_single_page(self, url: str, retry_count: int = 3) -> Dict[str, Any]:
         """
-        Crawl a single web page and return the result.
+        Crawl a single web page and return the result with retry logic.
         
         Args:
             url: URL of the web page to crawl
+            retry_count: Number of retry attempts
             
         Returns:
             Dict with success status, content, and metadata
         """
-        try:
-            if not self.crawler:
+        last_error = None
+        
+        for attempt in range(retry_count):
+            try:
+                if not self.crawler:
+                    return {
+                        "success": False,
+                        "error": "No crawler instance available"
+                    }
+                
+                # Use ENABLED cache mode for better performance, BYPASS only on retries
+                cache_mode = CacheMode.BYPASS if attempt > 0 else CacheMode.ENABLED
+                crawl_config = CrawlerRunConfig(
+                    cache_mode=cache_mode, 
+                    stream=False,
+                    wait_for="networkidle",  # Wait for network to be idle
+                    timeout=30000  # 30 second timeout
+                )
+                
+                logger.info(f"Crawling {url} (attempt {attempt + 1}/{retry_count})")
+                result = await self.crawler.arun(url=url, config=crawl_config)
+                
+                if not result.success:
+                    last_error = f"Failed to crawl {url}: {result.error_message}"
+                    logger.warning(f"Crawl attempt {attempt + 1} failed: {last_error}")
+                    
+                    # Exponential backoff before retry
+                    if attempt < retry_count - 1:
+                        await asyncio.sleep(2 ** attempt)
+                    continue
+                
+                # Validate content
+                if not result.markdown or len(result.markdown.strip()) < 50:
+                    last_error = f"Insufficient content from {url}"
+                    logger.warning(f"Crawl attempt {attempt + 1}: {last_error}")
+                    
+                    if attempt < retry_count - 1:
+                        await asyncio.sleep(2 ** attempt)
+                    continue
+                
+                # Success!
                 return {
-                    "success": False,
-                    "error": "No crawler instance available"
+                    "success": True,
+                    "url": url,
+                    "markdown": result.markdown,
+                    "title": result.title or "Untitled",
+                    "links": result.links,
+                    "content_length": len(result.markdown)
                 }
                 
-            crawl_config = CrawlerRunConfig(cache_mode=CacheMode.BYPASS, stream=False)
-            result = await self.crawler.arun(url=url, config=crawl_config)
+            except asyncio.TimeoutError:
+                last_error = f"Timeout crawling {url}"
+                logger.warning(f"Crawl attempt {attempt + 1} timed out")
+            except Exception as e:
+                last_error = f"Error crawling page: {str(e)}"
+                logger.error(f"Error on attempt {attempt + 1} crawling {url}: {e}")
+                logger.error(traceback.format_exc())
             
-            if not result.success:
-                return {
-                    "success": False,
-                    "error": f"Failed to crawl {url}: {result.error_message}"
-                }
-            
-            return {
-                "success": True,
-                "url": url,
-                "markdown": result.markdown,
-                "title": result.title or "Untitled",
-                "links": result.links,
-                "content_length": len(result.markdown)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error crawling single page {url}: {e}")
-            return {
-                "success": False,
-                "error": f"Error crawling page: {str(e)}"
-            }
+            # Exponential backoff before retry
+            if attempt < retry_count - 1:
+                await asyncio.sleep(2 ** attempt)
+        
+        # All retries failed
+        return {
+            "success": False,
+            "error": last_error or f"Failed to crawl {url} after {retry_count} attempts"
+        }
 
     async def crawl_markdown_file(self, url: str) -> List[Dict[str, Any]]:
         """Crawl a .txt or markdown file with comprehensive error handling."""
@@ -154,8 +191,8 @@ class CrawlingService:
         total_urls = len(urls)
         await report_progress(start_progress, f'Starting to crawl {total_urls} URLs...')
         
-        # Process URLs in smaller batches for better progress reporting
-        batch_size = min(20, max_concurrent)  # Process in batches of 20 or max_concurrent
+        # Process URLs in smaller batches for better progress reporting and reliability
+        batch_size = min(10, max_concurrent)  # Reduced from 20 to 10 for better reliability
         successful_results = []
         processed = 0
         

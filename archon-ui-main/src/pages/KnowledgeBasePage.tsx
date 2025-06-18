@@ -1,19 +1,19 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { Search, Grid, Plus, Upload, Link as LinkIcon, Share2, Brain, Filter, BoxIcon, Trash2, List, RefreshCw, X, Globe, FileText } from 'lucide-react';
+import { Search, Grid, Plus, Upload, Link as LinkIcon, Share2, Brain, Filter, BoxIcon, Trash2, List, RefreshCw, X, Globe, FileText, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MindMapView } from '../components/MindMapView';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Badge } from '../components/ui/Badge';
+import { GlassCrawlDepthSelector } from '../components/ui/GlassCrawlDepthSelector';
 import { useStaggeredEntrance } from '../hooks/useStaggeredEntrance';
 import { useToast } from '../contexts/ToastContext';
 import { knowledgeBaseService, KnowledgeItem, KnowledgeItemMetadata } from '../services/knowledgeBaseService';
-import { KnowledgeItem as LegacyKnowledgeItem } from '../types/knowledge';
 import { knowledgeWebSocket } from '../services/websocketService';
 import { CrawlingProgressCard } from '../components/CrawlingProgressCard';
-import { CrawlProgressData, crawlProgressService } from '../services/crawlProgressService';
+import { CrawlProgressData, crawlProgressServiceV2 as crawlProgressService } from '../services/crawlProgressServiceV2';
+import { WebSocketState } from '../services/EnhancedWebSocketService';
 import { KnowledgeTable } from '../components/knowledge-base/KnowledgeTable';
 
 const extractDomain = (url: string): string => {
@@ -230,9 +230,23 @@ const GroupedKnowledgeItemCard = ({
           )}
 
           {/* Page count - orange neon container like Active button */}
-          <div className="flex items-center gap-1 px-2 py-1 bg-orange-500/20 border border-orange-500/40 rounded-full backdrop-blur-sm shadow-[0_0_15px_rgba(251,146,60,0.3)] transition-all duration-300">
-            <FileText className="w-3 h-3 text-orange-400" />
-            <span className="text-xs text-orange-400 font-medium">{Math.ceil(totalWordCount / 250).toLocaleString()}</span>
+          <div className="relative group">
+            <div className="flex items-center gap-1 px-2 py-1 bg-orange-500/20 border border-orange-500/40 rounded-full backdrop-blur-sm shadow-[0_0_15px_rgba(251,146,60,0.3)] transition-all duration-300 cursor-help">
+              <FileText className="w-3 h-3 text-orange-400" />
+              <span className="text-xs text-orange-400 font-medium">{Math.ceil(totalWordCount / 250).toLocaleString()}</span>
+            </div>
+            
+            {/* Tooltip */}
+            <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 z-50">
+              <div className="bg-black dark:bg-zinc-800 text-white text-xs px-3 py-2 rounded-lg shadow-lg whitespace-nowrap">
+                <div className="font-medium mb-1">{totalWordCount.toLocaleString()} words</div>
+                <div className="text-gray-300 space-y-0.5">
+                  <div>= {Math.ceil(totalWordCount / 250).toLocaleString()} pages</div>
+                  <div>= {(totalWordCount / 80000).toFixed(1)} average novels</div>
+                </div>
+                <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-black dark:border-t-zinc-800"></div>
+              </div>
+            </div>
           </div>
           
           <Badge color={statusColorMap[firstItem.metadata.status || 'active'] as any}>
@@ -257,7 +271,7 @@ const GroupedKnowledgeItemCard = ({
 };
 
 export const KnowledgeBasePage = () => {
-  const [viewMode, setViewMode] = useState<'grid' | 'mind-map' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [searchQuery, setSearchQuery] = useState('');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [forceReanimate, setForceReanimate] = useState(0);
@@ -364,6 +378,10 @@ export const KnowledgeBasePage = () => {
       }
       cleanup();
       knowledgeWebSocket.disconnect();
+      
+      // Clean up any active crawl progress connections
+      console.log('🧹 Disconnecting crawl progress service');
+      crawlProgressService.disconnect();
     };
   }, []); // Only run once on mount
 
@@ -521,7 +539,7 @@ export const KnowledgeBasePage = () => {
     }
   };
 
-  const handleStartCrawl = (progressId: string, initialData: Partial<CrawlProgressData>) => {
+  const handleStartCrawl = async (progressId: string, initialData: Partial<CrawlProgressData>) => {
     console.log(`🚨 handleStartCrawl called with progressId: ${progressId}`);
     console.log(`🚨 Initial data:`, initialData);
     
@@ -536,8 +554,7 @@ export const KnowledgeBasePage = () => {
     console.log(`🚨 Adding progress item to state`);
     setProgressItems(prev => [...prev, newProgressItem]);
     
-    // Set up callbacks BEFORE connecting to ensure we don't miss any messages
-    // Single unified callback that handles all progress states
+    // Set up callbacks for enhanced progress tracking
     const progressCallback = (data: CrawlProgressData) => {
       console.log(`📨 Progress callback called for ${progressId}:`, data);
       
@@ -554,50 +571,51 @@ export const KnowledgeBasePage = () => {
       }
     };
     
+    const stateChangeCallback = (state: WebSocketState) => {
+      console.log(`🔌 WebSocket state changed for ${progressId}: ${state}`);
+      
+      // Update UI based on connection state if needed
+      if (state === WebSocketState.FAILED) {
+        handleProgressError('Connection failed - please check your network', progressId);
+      }
+    };
+    
+    const errorCallback = (error: Error) => {
+      console.error(`❌ WebSocket error for ${progressId}:`, error);
+      handleProgressError(`Connection error: ${error.message}`, progressId);
+    };
+    
     console.log(`🚀 Starting progress stream for ${progressId}`);
-    console.log(`🚀 About to call crawlProgressService.streamProgress`);
     
     try {
-      // Use the new streamProgress method (matches MCP pattern)
-      const ws = crawlProgressService.streamProgress(progressId, progressCallback, {
+      // Use the enhanced streamProgress method with all callbacks
+      await crawlProgressService.streamProgressEnhanced(progressId, {
+        onMessage: progressCallback,
+        onStateChange: stateChangeCallback,
+        onError: errorCallback
+      }, {
         autoReconnect: true,
-        reconnectDelay: 5000
+        reconnectDelay: 5000,
+        connectionTimeout: 10000
       });
-      console.log(`🚀 streamProgress called, WebSocket:`, ws);
+      
+      console.log(`✅ WebSocket connected successfully for ${progressId}`);
+      
+      // Wait for connection to be fully established
+      await crawlProgressService.waitForConnection(5000);
+      
+      console.log(`✅ Connection verified for ${progressId}`);
     } catch (error) {
-      console.error(`❌ Error calling streamProgress:`, error);
+      console.error(`❌ Failed to establish WebSocket connection:`, error);
+      handleProgressError('Failed to connect to progress updates', progressId);
     }
-  };
-
-  // Transform new KnowledgeItem format to legacy format for MindMapView
-  const transformItemsForMindMap = (items: KnowledgeItem[]): LegacyKnowledgeItem[] => {
-    return items.map(item => ({
-      id: item.id,
-      title: item.title,
-      description: item.metadata.description || 'No description available',
-      source: item.url,
-      sourceType: item.metadata.source_type || 'url',
-      sourceUrl: item.metadata.source_type === 'url' ? item.url : undefined,
-      fileName: item.metadata.file_name,
-      fileType: item.metadata.file_type,
-      knowledgeType: item.metadata.knowledge_type || 'technical',
-      tags: item.metadata.tags || [],
-      lastUpdated: new Date(item.updated_at).toLocaleDateString(),
-      nextUpdate: item.metadata.next_update,
-      status: item.metadata.status || 'active',
-      metadata: {
-        size: `${item.metadata.chunks_count || 0} chunks`,
-        pageCount: item.metadata.page_count,
-        wordCount: item.metadata.word_count,
-        lastScraped: item.metadata.last_scraped
-      }
-    }));
   };
 
   return <div>
       {/* Header with animation - stays static when changing views */}
       <motion.div className="flex justify-between items-center mb-8" initial="hidden" animate="visible" variants={headerContainerVariants}>
-        <motion.h1 className="text-3xl font-bold text-gray-800 dark:text-white" variants={titleVariants}>
+        <motion.h1 className="text-3xl font-bold text-gray-800 dark:text-white flex items-center gap-3" variants={titleVariants}>
+          <BookOpen className="w-7 h-7 text-green-500 filter drop-shadow-[0_0_8px_rgba(34,197,94,0.8)]" />
           Knowledge Base
         </motion.h1>
         <motion.div className="flex items-center gap-4" variants={headerItemVariants}>
@@ -625,9 +643,6 @@ export const KnowledgeBasePage = () => {
             <button onClick={() => setViewMode('table')} className={`p-2 ${viewMode === 'table' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-500' : 'text-gray-500 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300'}`} title="Table View">
               <List className="w-4 h-4" />
             </button>
-            <button onClick={() => setViewMode('mind-map')} className={`p-2 ${viewMode === 'mind-map' ? 'bg-blue-100 dark:bg-blue-500/10 text-blue-600 dark:text-blue-500' : 'text-gray-500 dark:text-zinc-500 hover:text-gray-700 dark:hover:text-zinc-300'}`} title="Mind Map View">
-              <Share2 className="w-4 h-4" />
-            </button>
           </div>
           {/* Add Button */}
           <Button onClick={handleAddKnowledge} variant="primary" accentColor="purple" className="shadow-lg shadow-purple-500/20">
@@ -645,8 +660,7 @@ export const KnowledgeBasePage = () => {
               {loadingStrategy === 'websocket' ? 'Connecting to live updates...' : 'Loading knowledge items...'}
             </p>
           </div>
-        ) : viewMode === 'mind-map' ? <MindMapView items={transformItemsForMindMap(filteredItems)} /> : 
-        viewMode === 'table' ? (
+        ) : viewMode === 'table' ? (
           <KnowledgeTable 
             items={filteredItems} 
             onDelete={handleDeleteItem} 
@@ -857,6 +871,8 @@ const AddKnowledgeModal = ({
   const [knowledgeType, setKnowledgeType] = useState<'technical' | 'business'>('technical');
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [crawlDepth, setCrawlDepth] = useState(2);
+  const [showDepthTooltip, setShowDepthTooltip] = useState(false);
   const { showToast } = useToast();
 
   // URL validation function that checks domain existence
@@ -950,7 +966,8 @@ const AddKnowledgeModal = ({
           url: formattedUrl,
           knowledge_type: knowledgeType,
           tags,
-          update_frequency: parseInt(updateFrequency)
+          update_frequency: parseInt(updateFrequency),
+          max_depth: crawlDepth
         });
         
         console.log('🔍 Crawl URL result:', result);
@@ -1028,9 +1045,9 @@ const AddKnowledgeModal = ({
     }
   };
 
-  return <div className="fixed inset-0 bg-gray-500/50 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
-      <Card className="w-full max-w-2xl relative before:content-[''] before:absolute before:top-0 before:left-0 before:w-full before:h-[1px] before:bg-green-500">
-        <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-6">
+  return <div className="fixed inset-0 bg-gray-500/50 dark:bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <Card className="w-full max-w-2xl relative before:content-[''] before:absolute before:top-0 before:left-0 before:w-full before:h-[1px] before:bg-green-500 p-8">
+        <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-8">
           Add Knowledge Source
         </h2>
         {/* Knowledge Type Selection */}
@@ -1123,6 +1140,32 @@ const AddKnowledgeModal = ({
             </p>
           </div>
         )}
+        {/* Crawl Depth - Only for URLs */}
+        {method === 'url' && (
+          <div className="mb-6">
+            <label className="block text-gray-600 dark:text-zinc-400 text-sm mb-4">
+              Crawl Depth
+              <button
+                type="button"
+                className="ml-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+                onMouseEnter={() => setShowDepthTooltip(true)}
+                onMouseLeave={() => setShowDepthTooltip(false)}
+              >
+                <svg className="w-4 h-4 inline" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </button>
+            </label>
+            
+            <GlassCrawlDepthSelector
+              value={crawlDepth}
+              onChange={setCrawlDepth}
+              showTooltip={showDepthTooltip}
+              onTooltipToggle={setShowDepthTooltip}
+            />
+          </div>
+        )}
+        
         {/* Update Frequency */}
         {method === 'url' && <div className="mb-6">
             <Select label="Update Frequency" value={updateFrequency} onChange={e => setUpdateFrequency(e.target.value)} options={[{
@@ -1142,7 +1185,7 @@ const AddKnowledgeModal = ({
         {/* Tags */}
         <div className="mb-6">
           <label className="block text-gray-600 dark:text-zinc-400 text-sm mb-2">
-            Tags
+            Tags (AI will add recommended tags if left blank)
           </label>
           <div className="flex flex-wrap gap-2 mb-2">
             {tags.map(tag => <Badge key={tag} color="purple" variant="outline">

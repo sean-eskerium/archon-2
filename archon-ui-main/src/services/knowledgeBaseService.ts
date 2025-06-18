@@ -53,8 +53,8 @@ export interface CrawlRequest {
   knowledge_type?: 'technical' | 'business'
   tags?: string[]
   update_frequency?: number
+  max_depth?: number
   crawl_options?: {
-    max_depth?: number
     max_concurrent?: number
   }
 }

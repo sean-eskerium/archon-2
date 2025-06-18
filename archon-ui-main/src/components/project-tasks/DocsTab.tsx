@@ -8,7 +8,8 @@ import { Input } from '../ui/Input';
 import { Card } from '../ui/Card';
 import { Badge } from '../ui/Badge';
 import { Select } from '../ui/Select';
-import { CrawlProgressData, crawlProgressService } from '../../services/crawlProgressService';
+import { CrawlProgressData, crawlProgressServiceV2 as crawlProgressService } from '../../services/crawlProgressServiceV2';
+import { WebSocketState } from '../../services/EnhancedWebSocketService';
 import { BlockNoteEditor } from './BlockNoteEditor';
 import { VersionHistoryModal } from './VersionHistoryModal';
 
@@ -331,6 +332,12 @@ export const DocsTab = ({
     loadKnowledgeItems();
     loadProjectDocuments();
     loadProjectData(); // Load saved sources
+    
+    // Cleanup function to disconnect crawl progress service
+    return () => {
+      console.log('🧹 DocsTab: Disconnecting crawl progress service');
+      crawlProgressService.disconnect();
+    };
   }, [project?.id]);
 
   // Clear selected document when project changes
@@ -435,7 +442,7 @@ export const DocsTab = ({
     );
   };
 
-  const handleStartCrawl = (progressId: string, initialData: Partial<CrawlProgressData>) => {
+  const handleStartCrawl = async (progressId: string, initialData: Partial<CrawlProgressData>) => {
     console.log(`Starting crawl tracking for: ${progressId}`);
     
     const newProgressItem: CrawlProgressData = {
@@ -462,10 +469,25 @@ export const DocsTab = ({
       }
     };
     
-    crawlProgressService.streamProgress(progressId, progressCallback, {
-      autoReconnect: true,
-      reconnectDelay: 5000
-    });
+    try {
+      // Use the enhanced streamProgress method for better connection handling
+      await crawlProgressService.streamProgressEnhanced(progressId, {
+        onMessage: progressCallback,
+        onError: (error) => {
+          console.error(`❌ WebSocket error for ${progressId}:`, error);
+          handleProgressError(`Connection error: ${error.message}`);
+        }
+      }, {
+        autoReconnect: true,
+        reconnectDelay: 5000,
+        connectionTimeout: 10000
+      });
+      
+      console.log(`✅ WebSocket connected successfully for ${progressId}`);
+    } catch (error) {
+      console.error(`❌ Failed to establish WebSocket connection:`, error);
+      handleProgressError('Failed to connect to progress updates');
+    }
   };
 
   const openAddSourceModal = (type: 'technical' | 'business') => {
@@ -476,28 +498,6 @@ export const DocsTab = ({
   return (
     <div className="relative min-h-[70vh] pt-8">
       <div className="max-w-6xl pl-8">
-        {/* Project Overview Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <OverviewCard 
-            title="Project Status" 
-            value={calculateProjectStatus(tasks)} 
-            subtext={calculateProjectStatus(tasks) === 'Development' ? 'In active development' : calculateProjectStatus(tasks) === 'Complete' ? 'All tasks completed' : 'Planning phase'} 
-            color="blue" 
-          />
-          <OverviewCard 
-            title="Feature Progress" 
-            value={`${calculateFeatureCompletion(tasks)}%`} 
-            subtext={`${Object.keys(tasks.reduce((acc, task) => ({ ...acc, [task.feature]: true }), {})).length} features tracked`} 
-            color="purple" 
-          />
-          <OverviewCard 
-            title="Tasks Overview" 
-            value={`${tasks.filter(t => t.status === 'complete').length}/${tasks.length}`} 
-            subtext={`${tasks.filter(t => t.status === 'in-progress').length} in progress, ${tasks.filter(t => t.status === 'review').length} in review`} 
-            color="pink" 
-          />
-        </div>
-
         {/* Document Header */}
         <header className="mb-8">
           <div className="flex items-center justify-between">
@@ -563,8 +563,6 @@ export const DocsTab = ({
               </Button>
             </div>
           </div>
-
-
         </header>
 
         {/* Document Content */}
@@ -828,103 +826,6 @@ const TemplateModal: React.FC<{
       </div>
     </div>
   );
-};
-
-const calculateProjectStatus = (tasks: Task[]) => {
-  const hasInProgress = tasks.some(task => task.status === 'in-progress' || task.status === 'review');
-  const allComplete = tasks.every(task => task.status === 'complete');
-  if (allComplete) return 'Complete';
-  if (hasInProgress) return 'Development';
-  return 'Planning';
-};
-
-const calculateFeatureCompletion = (tasks: Task[]) => {
-  const featureStats = tasks.reduce((acc, task) => {
-    if (!acc[task.feature]) {
-      acc[task.feature] = {
-        total: 0,
-        complete: 0
-      };
-    }
-    acc[task.feature].total++;
-    if (task.status === 'complete') {
-      acc[task.feature].complete++;
-    }
-    return acc;
-  }, {} as Record<string, {
-    total: number;
-    complete: number;
-  }>);
-  const totalFeatures = Object.keys(featureStats).length;
-  const completedFeatures = Object.values(featureStats).reduce((sum, {
-    total,
-    complete
-  }) => sum + complete / total, 0);
-  return Math.round(completedFeatures / totalFeatures * 100);
-};
-
-
-
-const OverviewCard: React.FC<{
-  title: string;
-  value: string;
-  subtext: string;
-  color: 'blue' | 'purple' | 'pink';
-}> = ({
-  title,
-  value,
-  subtext,
-  color
-}) => {
-  const colorMap = {
-    blue: {
-      bg: 'from-blue-400 via-blue-500 to-blue-400',
-      glow: 'before:shadow-[0_0_10px_2px_rgba(59,130,246,0.4)] dark:before:shadow-[0_0_20px_5px_rgba(59,130,246,0.7)]',
-      border: 'border-blue-300 dark:border-blue-500/30',
-      text: 'text-blue-600 dark:text-blue-400',
-      gradientFrom: 'from-blue-100 dark:from-blue-500/20',
-      gradientTo: 'to-white dark:to-blue-500/5'
-    },
-    purple: {
-      bg: 'from-purple-400 via-purple-500 to-purple-400',
-      glow: 'before:shadow-[0_0_10px_2px_rgba(168,85,247,0.4)] dark:before:shadow-[0_0_20px_5px_rgba(168,85,247,0.7)]',
-      border: 'border-purple-300 dark:border-purple-500/30',
-      text: 'text-purple-600 dark:text-purple-400',
-      gradientFrom: 'from-purple-100 dark:from-purple-500/20',
-      gradientTo: 'to-white dark:to-purple-500/5'
-    },
-    pink: {
-      bg: 'from-pink-400 via-pink-500 to-pink-400',
-      glow: 'before:shadow-[0_0_10px_2px_rgba(236,72,153,0.4)] dark:before:shadow-[0_0_20px_5px_rgba(236,72,153,0.7)]',
-      border: 'border-pink-300 dark:border-pink-500/30',
-      text: 'text-pink-600 dark:text-pink-400',
-      gradientFrom: 'from-pink-100 dark:from-pink-500/20',
-      gradientTo: 'to-white dark:to-pink-500/5'
-    }
-  };
-  return <div className={`
-        relative p-4 rounded-md backdrop-blur-md
-        bg-gradient-to-b from-white/80 to-white/60 dark:from-white/10 dark:to-black/30
-        border ${colorMap[color].border}
-        shadow-[0_10px_30px_-15px_rgba(0,0,0,0.1)] dark:shadow-[0_10px_30px_-15px_rgba(0,0,0,0.7)]
-        hover:shadow-[0_15px_40px_-15px_rgba(0,0,0,0.2)] dark:hover:shadow-[0_15px_40px_-15px_rgba(0,0,0,0.9)]
-        transition-all duration-300
-        before:content-[""] before:absolute before:top-0 before:left-0 before:right-0 before:h-[2px] 
-        before:rounded-t-[4px] before:bg-gradient-to-r ${colorMap[color].bg} ${colorMap[color].glow}
-        after:content-[""] after:absolute after:top-0 after:left-0 after:right-0 after:h-16
-        after:bg-gradient-to-b ${colorMap[color].gradientFrom} ${colorMap[color].gradientTo}
-        after:rounded-t-md after:pointer-events-none
-      `}>
-      <div className="relative z-10">
-        <h3 className="text-gray-600 dark:text-gray-400 text-sm mb-1">
-          {title}
-        </h3>
-        <div className={`text-xl font-bold ${colorMap[color].text} mb-1`}>
-          {value}
-        </div>
-        <p className="text-gray-500 dark:text-gray-500 text-xs">{subtext}</p>
-      </div>
-    </div>;
 };
 
 const KnowledgeSection: React.FC<{

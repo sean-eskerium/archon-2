@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Terminal, RefreshCw, Play, Square, Clock, CheckCircle, XCircle, FileText, ChevronUp } from 'lucide-react';
+import { Terminal, RefreshCw, Play, Square, Clock, CheckCircle, XCircle, FileText, ChevronUp, ChevronDown } from 'lucide-react';
 // Card component not used but preserved for future use
 // import { Card } from '../ui/Card';
 import { Button } from '../ui/Button';
@@ -33,6 +33,7 @@ export const TestStatus = () => {
   const [displayMode, setDisplayMode] = useState<'pretty' | 'raw'>('pretty');
   const [mcpErrorsExpanded, setMcpErrorsExpanded] = useState(false);
   const [uiErrorsExpanded, setUiErrorsExpanded] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true); // Start collapsed by default
   
   const [mcpTest, setMcpTest] = useState<TestExecutionState>({
     logs: ['> Ready to run Python tests...'],
@@ -614,36 +615,42 @@ export const TestStatus = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between cursor-pointer" onClick={() => setIsCollapsed(!isCollapsed)}>
         <div className="flex items-center gap-2">
-          <Terminal className="w-5 h-5 text-orange-500 dark:text-orange-400" />
-          <h2 className="text-xl font-semibold text-gray-800 dark:text-white">Test Status</h2>
+          <Terminal className="w-5 h-5 text-orange-500 dark:text-orange-400 filter drop-shadow-[0_0_8px_rgba(251,146,60,0.8)]" />
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-white">Archon Unit Tests</h2>
+          <div className={`transform transition-transform duration-300 ${isCollapsed ? '' : 'rotate-180'}`}>
+            <ChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+          </div>
         </div>
         
-        {/* Display mode toggle */}
-        <div className="flex items-center gap-2">
-          <Button
-            variant={displayMode === 'pretty' ? 'primary' : 'outline'}
-            accentColor="blue"
-            size="sm"
-            onClick={() => setDisplayMode('pretty')}
-          >
-            <CheckCircle className="w-4 h-4 mr-1" />
-            Summary
-          </Button>
-          <Button
-            variant={displayMode === 'raw' ? 'primary' : 'outline'}
-            accentColor="blue"
-            size="sm"
-            onClick={() => setDisplayMode('raw')}
-          >
-            <FileText className="w-4 h-4 mr-1" />
-            Raw
-          </Button>
-        </div>
+        {/* Display mode toggle - only visible when expanded */}
+        {!isCollapsed && (
+          <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+            <Button
+              variant={displayMode === 'pretty' ? 'primary' : 'outline'}
+              accentColor="blue"
+              size="sm"
+              onClick={() => setDisplayMode('pretty')}
+            >
+              <CheckCircle className="w-4 h-4 mr-1" />
+              Summary
+            </Button>
+            <Button
+              variant={displayMode === 'raw' ? 'primary' : 'outline'}
+              accentColor="blue"
+              size="sm"
+              onClick={() => setDisplayMode('raw')}
+            >
+              <FileText className="w-4 h-4 mr-1" />
+              Raw
+            </Button>
+          </div>
+        )}
       </div>
 
-      <div className="space-y-4">
+      {/* Collapsible content */}
+      <div className={`space-y-4 transition-all duration-300 ${isCollapsed ? 'hidden' : 'block'}`}>
         <TestSection
           title="Python Tests"
           testType="mcp"

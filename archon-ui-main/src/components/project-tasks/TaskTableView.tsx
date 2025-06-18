@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { useDrag, useDrop } from 'react-dnd';
-import { Check, Trash2, Edit, Tag, User, Bot, Clipboard, Save, Plus, List } from 'lucide-react';
+import { Check, Trash2, Edit, Tag, User, Bot, Clipboard, Save, Plus, Network } from 'lucide-react';
 import { Toggle } from '../ui/Toggle';
 import { useToast } from '../../contexts/ToastContext';
 import { DeleteConfirmModal } from '../../pages/ProjectPage';
@@ -763,24 +763,12 @@ export const TaskTableView = ({
         
         {/* Show Subtasks Toggle */}
         {onShowSubtasksChange && (
-          <div className="flex items-center gap-3 p-3 rounded-lg bg-gradient-to-r from-blue-500/5 to-blue-500/0">
-            <div className="flex-1 min-w-0">
-              <p className="font-medium text-gray-800 dark:text-white text-sm">
-                Show Subtasks
-              </p>
-              <p className="text-xs text-gray-500 dark:text-gray-400">
-                Display subtasks indented under parent tasks
-              </p>
-            </div>
-            <div className="flex-shrink-0">
-              <Toggle 
-                checked={showSubtasks} 
-                onCheckedChange={onShowSubtasksChange} 
-                accentColor="blue" 
-                icon={<List className="w-5 h-5" />} 
-              />
-            </div>
-          </div>
+          <Toggle 
+            checked={showSubtasks} 
+            onCheckedChange={onShowSubtasksChange} 
+            accentColor="blue" 
+            icon={<Network className="w-5 h-5" />} 
+          />
         )}
       </div>
 

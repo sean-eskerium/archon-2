@@ -18,7 +18,7 @@ from typing import Any, Optional
 import logging
 from dataclasses import dataclass
 
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 # Import Logfire configuration
@@ -314,6 +314,40 @@ async def health_check():
         "credentials_loaded": True,
         "openai_key_available": openai_key_available
     }
+
+# API health check endpoint (alias for /health at /api/health)
+@app.get("/api/health")
+async def api_health_check():
+    """API health check endpoint - alias for /health."""
+    return await health_check()
+
+# Health WebSocket endpoint
+@app.websocket("/ws/health")
+async def websocket_health(websocket: WebSocket):
+    """WebSocket endpoint for real-time health monitoring."""
+    await websocket.accept()
+    api_logger.info("Health WebSocket connection established")
+    
+    try:
+        while True:
+            # Wait for ping message
+            data = await websocket.receive_json()
+            
+            if data.get("type") == "ping":
+                # Send pong response with current health status
+                health_status = await health_check()
+                await websocket.send_json({
+                    "type": "pong",
+                    "health": health_status
+                })
+    except WebSocketDisconnect:
+        api_logger.info("Health WebSocket disconnected")
+    except Exception as e:
+        api_logger.error(f"Health WebSocket error: {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
 
 if __name__ == "__main__":
     import uvicorn

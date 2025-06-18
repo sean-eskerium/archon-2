@@ -46,6 +46,7 @@ class CreateProjectRequest(BaseModel):
 
 class UpdateProjectRequest(BaseModel):
     title: Optional[str] = None
+    description: Optional[str] = None  # Add description field
     github_repo: Optional[str] = None
     prd: Optional[Dict[str, Any]] = None
     docs: Optional[List[Any]] = None
@@ -634,6 +635,7 @@ async def list_projects():
                 projects.append({
                     "id": project["id"],
                     "title": project["title"],
+                    "description": project.get("description", ""),  # Include description field
                     "github_repo": project.get("github_repo"),
                     "created_at": project["created_at"],
                     "updated_at": project["updated_at"],
@@ -969,6 +971,7 @@ async def get_project(project_id: str):
                 return {
                     "id": project["id"],
                     "title": project["title"],
+                    "description": project.get("description", ""),  # Include description field
                     "github_repo": project.get("github_repo"),
                     "created_at": project["created_at"],
                     "updated_at": project["updated_at"],
@@ -1016,6 +1019,8 @@ async def update_project(project_id: str, request: UpdateProjectRequest):
                 
                 if request.title is not None:
                     update_data["title"] = request.title
+                if request.description is not None:
+                    update_data["description"] = request.description
                 if request.github_repo is not None:
                     update_data["github_repo"] = request.github_repo
                 if request.prd is not None:

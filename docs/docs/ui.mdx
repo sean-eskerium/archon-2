@@ -8,21 +8,75 @@ Built with React and Vite.
 src/
 ├── components/
 │   ├── animations/
+│   │   └── Animations.tsx
+│   ├── knowledge-base/
+│   │   └── KnowledgeTable.tsx
 │   ├── layouts/
+│   │   ├── ArchonChatPanel.tsx
+│   │   ├── MainLayout.tsx
+│   │   └── SideNavigation.tsx
+│   ├── mcp/
+│   │   ├── ClientCard.tsx
+│   │   ├── MCPClients.tsx
+│   │   └── ToolTestingPanel.tsx
 │   ├── project-tasks/
+│   │   ├── BlockNoteEditor.tsx
+│   │   ├── DataTab.tsx
+│   │   ├── DocsTab.tsx
+│   │   ├── DraggableTaskCard.tsx
+│   │   ├── FeaturesTab.tsx
+│   │   ├── Tabs.tsx
+│   │   ├── TaskBoardView.tsx
+│   │   ├── TaskTableView.tsx
+│   │   └── VersionHistoryModal.tsx
 │   ├── settings/
-│   └── ui/
+│   │   ├── APIKeysSection.tsx
+│   │   ├── FeaturesSection.tsx
+│   │   ├── IDEGlobalRules.tsx
+│   │   ├── RAGSettings.tsx
+│   │   └── TestStatus.tsx
+│   ├── ui/
+│   │   ├── Badge.tsx
+│   │   ├── Button.tsx
+│   │   ├── Card.tsx
+│   │   ├── Input.tsx
+│   │   ├── Select.tsx
+│   │   ├── ThemeToggle.tsx
+│   │   └── Toggle.tsx
+│   ├── CrawlingProgressCard.tsx
+│   └── ProjectCreationProgressCard.tsx
 ├── contexts/
+│   ├── SettingsContext.tsx
+│   ├── ThemeContext.tsx
+│   └── ToastContext.tsx
 ├── hooks/
+│   ├── useNeonGlow.ts
+│   └── useStaggeredEntrance.ts
 ├── lib/
+│   ├── projectSchemas.ts
+│   ├── task-utils.tsx
+│   └── utils.ts
 ├── pages/
 │   ├── KnowledgeBasePage.tsx
 │   ├── MCPPage.tsx
 │   ├── ProjectPage.tsx
-│   ├── SettingsPage.tsx
-│   └── SettingsPageNew.tsx
+│   └── SettingsPage.tsx
 ├── services/
+│   ├── agentChatService.ts
+│   ├── api.ts
+│   ├── crawlProgressService.ts
+│   ├── credentialsService.ts
+│   ├── knowledgeBaseService.ts
+│   ├── mcpClientService.ts
+│   ├── mcpServerService.ts
+│   ├── mcpService.ts
+│   ├── projectCreationProgressService.ts
+│   ├── projectService.ts
+│   ├── testService.ts
+│   └── websocketService.ts
 └── types/
+    ├── knowledge.ts
+    └── project.ts
 ```
 
 ## Environment Variables
@@ -106,19 +160,22 @@ Archon UI provides a comprehensive dashboard for managing your AI's knowledge ba
 
 ### 1. Knowledge Base (`/`)
 
-Browse and manage your knowledge items.
+Browse and manage your knowledge items with multiple view modes.
 
 **Components:**
-- **Knowledge Grid**: Card-based knowledge display
+- **Knowledge Grid**: Card-based knowledge display with domain grouping
+- **Knowledge Table**: Full-width table view with sortable columns
 - **Search/Filter**: Search by title, type, tags
-- **Knowledge Details**: View full item details
-- **Actions**: Delete, refresh, organize
+- **Crawling Progress**: Real-time progress tracking for URL crawling
+- **Actions**: Delete, add sources, file upload
 
 **Features:**
-- Pagination support
+- Grid and table view modes
 - Real-time updates via WebSocket
 - Type-based filtering (technical/business)
-- Metadata display
+- Domain-based grouping for URLs
+- Tag tooltips for overflow
+- Progress tracking for crawling operations
 
 ### 2. Projects (`/projects`)
 
@@ -136,24 +193,32 @@ Project dashboard with task management and documentation tabs.
 
 ### 3. Settings (`/settings`)
 
-Comprehensive configuration management.
+Comprehensive configuration management with organized sections.
 
 **Sections:**
-- **Credentials**: 
+- **Features**: 
+  - Projects toggle (enable/disable Projects feature)
+  - Other feature flags
+- **API Keys**: 
   - OpenAI API key (encrypted storage)
-  - Supabase connection details
-  - MCP server configuration
-- **RAG Strategies**:
+  - Other API credentials
+- **RAG Settings**:
   - Contextual Embeddings toggle
   - Hybrid Search toggle
   - Agentic RAG (code extraction) toggle
   - Reranking toggle
+  - Model selection
+- **Archon Unit Tests** (Collapsible):
+  - Python MCP tests with real-time output
+  - React UI tests with local execution
+  - Pretty/Raw view modes
+  - Error summary display
 
 **Features:**
 - Secure credential storage with encryption
-- Real-time validation
+- Real-time test execution and monitoring
 - Toast notifications for actions
-- Default value management
+- Collapsible test section (collapsed by default)
 
 ### 4. MCP Dashboard (`/mcp`)
 

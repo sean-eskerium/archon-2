@@ -1,0 +1,536 @@
+---
+title: Python Testing Strategy
+sidebar_position: 9
+---
+
+# Python Testing Strategy with pytest
+
+This document outlines Archon's comprehensive Python testing strategy, incorporating the latest pytest best practices for 2024.
+
+## 🎯 Testing Philosophy
+
+Our Python testing follows these core principles:
+
+1. **Test Isolation**: Each test should be independent and self-contained
+2. **Descriptive Naming**: Long, descriptive test names that explain what is being tested
+3. **Behavior-Driven**: Test behavior and outcomes, not implementation details
+4. **Comprehensive Coverage**: Aim for 80%+ code coverage with meaningful tests
+5. **Fast Feedback**: Tests should run quickly to enable rapid development
+
+## 📁 Project Structure
+
+```
+python/
+├── pyproject.toml           # Modern Python project configuration
+├── pytest.ini               # pytest-specific configuration
+├── .coveragerc             # Coverage configuration
+├── src/                    # Application source code
+│   ├── api/               # FastAPI endpoints
+│   ├── services/          # Business logic services
+│   ├── modules/           # MCP modules
+│   ├── utils/             # Utility functions
+│   └── models/            # Data models
+├── tests/                  # Test suite
+│   ├── conftest.py        # Global fixtures and configuration
+│   ├── unit/              # Unit tests
+│   │   ├── test_services/ # Service layer tests
+│   │   ├── test_modules/  # Module tests
+│   │   └── test_utils/    # Utility tests
+│   ├── integration/       # Integration tests
+│   │   ├── test_api/      # API endpoint tests
+│   │   ├── test_mcp/      # MCP server tests
+│   │   └── test_db/       # Database tests
+│   ├── e2e/               # End-to-end tests
+│   ├── performance/       # Performance tests
+│   └── fixtures/          # Test data and utilities
+```
+
+## 🔧 Configuration
+
+### pyproject.toml
+
+```toml
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--cov=src",
+    "--cov-branch",
+    "--cov-report=term-missing:skip-covered",
+    "--cov-report=html:htmlcov",
+    "--cov-report=xml",
+    "--cov-fail-under=80",
+    "--import-mode=importlib",  # Modern import mode
+    "-v"
+]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+    "unit: marks tests as unit tests",
+    "integration: marks tests as integration tests",
+    "e2e: marks tests as end-to-end tests",
+    "mcp: marks tests as MCP-related",
+    "api: marks tests as API-related",
+    "db: marks tests as database-related",
+    "asyncio: marks tests as async",
+]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/migrations/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "@abstractmethod",
+]
+```
+
+## 🧪 Testing Patterns
+
+### 1. Service Layer Testing
+
+```python
+# tests/unit/test_services/test_project_service.py
+import pytest
+from unittest.mock import Mock, AsyncMock
+from src.services.project_service import ProjectService
+from src.models.project import Project
+
+class TestProjectService:
+    """Test cases for ProjectService business logic."""
+    
+    @pytest.fixture
+    def mock_db(self):
+        """Mock database dependency."""
+        return Mock()
+    
+    @pytest.fixture
+    def project_service(self, mock_db):
+        """Create ProjectService instance with mocked dependencies."""
+        return ProjectService(db=mock_db)
+    
+    def test_create_project_with_valid_data_should_succeed(self, project_service, mock_db):
+        """Test that creating a project with valid data returns expected result."""
+        # Arrange
+        project_data = {
+            "title": "Test Project",
+            "description": "Test Description"
+        }
+        expected_project = Project(id="123", **project_data)
+        mock_db.create.return_value = expected_project
+        
+        # Act
+        result = project_service.create_project(**project_data)
+        
+        # Assert
+        assert result.id == "123"
+        assert result.title == "Test Project"
+        mock_db.create.assert_called_once_with("projects", project_data)
+    
+    def test_create_project_with_empty_title_should_raise_validation_error(self, project_service):
+        """Test that creating a project with empty title raises ValidationError."""
+        # Arrange
+        project_data = {"title": "", "description": "Test"}
+        
+        # Act & Assert
+        with pytest.raises(ValidationError) as exc_info:
+            project_service.create_project(**project_data)
+        
+        assert "Title cannot be empty" in str(exc_info.value)
+```
+
+### 2. API Endpoint Testing
+
+```python
+# tests/integration/test_api/test_knowledge_api.py
+import pytest
+from httpx import AsyncClient
+from unittest.mock import patch, AsyncMock
+
+@pytest.mark.asyncio
+class TestKnowledgeAPI:
+    """Integration tests for knowledge management API endpoints."""
+    
+    async def test_upload_document_endpoint_with_valid_file_should_return_success(
+        self, async_client: AsyncClient, mock_storage_service
+    ):
+        """Test document upload with valid file returns success response."""
+        # Arrange
+        test_file = ("test.pdf", b"PDF content", "application/pdf")
+        mock_storage_service.store_document.return_value = {
+            "document_id": "doc-123",
+            "chunks": 5
+        }
+        
+        # Act
+        response = await async_client.post(
+            "/api/documents/upload",
+            files={"file": test_file},
+            data={"knowledge_type": "technical"}
+        )
+        
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert data["document_id"] == "doc-123"
+        assert data["status"] == "success"
+        assert data["chunks_created"] == 5
+    
+    @pytest.mark.parametrize("file_type,mime_type,should_succeed", [
+        ("test.pdf", "application/pdf", True),
+        ("test.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", True),
+        ("test.exe", "application/x-executable", False),
+        ("test.zip", "application/zip", False),
+    ])
+    async def test_upload_document_with_various_file_types(
+        self, async_client: AsyncClient, file_type, mime_type, should_succeed
+    ):
+        """Test document upload with various file types."""
+        # Arrange
+        test_file = (file_type, b"Content", mime_type)
+        
+        # Act
+        response = await async_client.post(
+            "/api/documents/upload",
+            files={"file": test_file}
+        )
+        
+        # Assert
+        if should_succeed:
+            assert response.status_code == 200
+        else:
+            assert response.status_code == 400
+            assert "Unsupported file type" in response.json()["detail"]
+```
+
+### 3. MCP Server Testing
+
+```python
+# tests/integration/test_mcp/test_mcp_server.py
+import pytest
+from src.mcp_server import ArchonMCPServer
+from mcp.types import Tool, TextContent
+
+@pytest.mark.asyncio
+class TestMCPServer:
+    """Integration tests for MCP server functionality."""
+    
+    @pytest.fixture
+    async def mcp_server(self, mock_dependencies):
+        """Create and initialize MCP server with mocked dependencies."""
+        server = ArchonMCPServer()
+        await server.initialize(mock_dependencies)
+        yield server
+        await server.shutdown()
+    
+    async def test_mcp_server_initialization_loads_all_expected_tools(self, mcp_server):
+        """Test that MCP server loads all expected tools on initialization."""
+        # Act
+        tools = await mcp_server.list_tools()
+        
+        # Assert
+        expected_tools = [
+            "health_check", "session_info",
+            "perform_rag_query", "search_code_examples",
+            "manage_project", "manage_task", "manage_document"
+        ]
+        tool_names = [tool.name for tool in tools]
+        
+        for expected in expected_tools:
+            assert expected in tool_names
+        
+        assert len(tools) >= 14  # Minimum expected tools
+    
+    async def test_health_check_tool_returns_system_status(self, mcp_server):
+        """Test health_check tool returns comprehensive system status."""
+        # Act
+        result = await mcp_server.call_tool("health_check", {})
+        
+        # Assert
+        assert isinstance(result, list)
+        assert len(result) > 0
+        assert isinstance(result[0], TextContent)
+        
+        health_data = json.loads(result[0].text)
+        assert health_data["status"] in ["healthy", "degraded", "unhealthy"]
+        assert "database_ready" in health_data
+        assert "crawler_ready" in health_data
+```
+
+### 4. Fixture Best Practices
+
+```python
+# tests/conftest.py
+import pytest
+import asyncio
+from typing import AsyncGenerator, Generator
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from unittest.mock import Mock, AsyncMock
+
+# Configure async test support
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for the test session."""
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
+    yield loop
+    loop.close()
+
+# Database fixtures
+@pytest.fixture(scope="function")
+async def test_db() -> AsyncGenerator[AsyncSession, None]:
+    """Create a test database session with transaction rollback."""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    
+    async with AsyncSession(engine) as session:
+        yield session
+        await session.rollback()
+    
+    await engine.dispose()
+
+# API client fixtures
+@pytest.fixture(scope="function")
+async def async_client(test_db) -> AsyncGenerator[AsyncClient, None]:
+    """Create an async test client with dependency overrides."""
+    from src.main import app
+    from src.dependencies import get_db
+    
+    app.dependency_overrides[get_db] = lambda: test_db
+    
+    async with AsyncClient(app=app, base_url="http://test") as client:
+        yield client
+    
+    app.dependency_overrides.clear()
+
+# Service mocks
+@pytest.fixture
+def mock_openai_service():
+    """Mock OpenAI service for embedding and completion tests."""
+    mock = AsyncMock()
+    mock.create_embedding.return_value = [0.1] * 1536
+    mock.create_completion.return_value = "Test response"
+    return mock
+
+@pytest.fixture
+def mock_storage_service():
+    """Mock storage service for document operations."""
+    mock = AsyncMock()
+    mock.store_document.return_value = {"document_id": "test-123", "chunks": 5}
+    mock.retrieve_document.return_value = {"content": "Test content"}
+    return mock
+
+# Test data factories
+@pytest.fixture
+def project_factory():
+    """Factory for creating test project data."""
+    def _create_project(**kwargs):
+        defaults = {
+            "title": "Test Project",
+            "description": "Test Description",
+            "status": "active",
+            "created_by": "test-user"
+        }
+        defaults.update(kwargs)
+        return defaults
+    return _create_project
+
+@pytest.fixture
+def document_factory():
+    """Factory for creating test document data."""
+    def _create_document(**kwargs):
+        defaults = {
+            "title": "Test Document",
+            "content": "This is test content for RAG testing.",
+            "metadata": {
+                "source": "test",
+                "type": "text",
+                "chunk_size": 1000
+            }
+        }
+        defaults.update(kwargs)
+        return defaults
+    return _create_document
+```
+
+## 🚀 Testing Commands
+
+### Running Tests
+
+```bash
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Run specific test categories
+pytest -m unit              # Unit tests only
+pytest -m integration       # Integration tests only
+pytest -m "not slow"       # Skip slow tests
+
+# Run specific test file or directory
+pytest tests/unit/test_services/
+pytest tests/unit/test_services/test_project_service.py::TestProjectService::test_create_project_with_valid_data_should_succeed
+
+# Run with different verbosity
+pytest -v     # Verbose output
+pytest -vv    # Very verbose output
+pytest -q     # Quiet mode
+
+# Run tests in parallel
+pytest -n auto  # Requires pytest-xdist
+
+# Run with specific Python warnings
+pytest -W error  # Treat warnings as errors
+```
+
+### Debugging Tests
+
+```bash
+# Drop into debugger on failure
+pytest --pdb
+
+# Show local variables on failure
+pytest -l
+
+# Show full diff on assertion failure
+pytest -vv
+
+# Run only last failed tests
+pytest --lf
+
+# Run failed tests first, then others
+pytest --ff
+```
+
+## 📊 Code Coverage
+
+### Coverage Requirements
+
+- **Overall Coverage**: Minimum 80%
+- **Critical Paths**: 95%+ (authentication, payments, data operations)
+- **New Code**: 90%+ coverage required for all PRs
+
+### Coverage Reports
+
+```bash
+# Generate HTML coverage report
+pytest --cov=src --cov-report=html
+# Open htmlcov/index.html in browser
+
+# Generate terminal report
+pytest --cov=src --cov-report=term-missing
+
+# Generate XML for CI/CD
+pytest --cov=src --cov-report=xml
+
+# Check coverage thresholds
+pytest --cov=src --cov-fail-under=80
+```
+
+## 🔄 CI/CD Integration
+
+### GitHub Actions Workflow
+
+```yaml
+name: Python Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[test]"
+    
+    - name: Run tests with coverage
+      run: |
+        pytest --cov=src --cov-report=xml --cov-report=term
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        fail_ci_if_error: true
+```
+
+## 🎯 Testing Checklist
+
+### For New Features
+
+- [ ] Write unit tests for all new functions/methods
+- [ ] Write integration tests for API endpoints
+- [ ] Add edge case tests
+- [ ] Add error handling tests
+- [ ] Update or add fixtures as needed
+- [ ] Ensure 90%+ coverage for new code
+- [ ] Run full test suite locally
+- [ ] Update documentation
+
+### For Bug Fixes
+
+- [ ] Write a failing test that reproduces the bug
+- [ ] Fix the bug
+- [ ] Ensure test now passes
+- [ ] Add regression tests
+- [ ] Check for similar issues elsewhere
+- [ ] Run related test suites
+
+## 📚 Best Practices Summary
+
+1. **Use Descriptive Test Names**: Test names should describe what is being tested and expected outcome
+2. **Follow AAA Pattern**: Arrange, Act, Assert for clear test structure
+3. **One Assertion Per Test**: Keep tests focused on single behavior
+4. **Use Fixtures Wisely**: Share setup code but avoid over-coupling
+5. **Mock External Dependencies**: Keep tests fast and deterministic
+6. **Parameterize Similar Tests**: Use `@pytest.mark.parametrize` for test variations
+7. **Test Edge Cases**: Include boundary conditions and error scenarios
+8. **Keep Tests Fast**: Aim for entire suite to run in under 5 minutes
+9. **Use Markers**: Organize tests with markers for selective execution
+10. **Continuous Improvement**: Regularly review and refactor tests
+
+---
+
+For more details, see:
+- [Testing Overview](./testing) - General testing documentation
+- [Vitest Strategy](./testing-vitest-strategy) - Frontend testing with Vitest
+- [API Reference](./api-reference) - API endpoint documentation

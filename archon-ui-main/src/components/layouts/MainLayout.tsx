@@ -174,8 +174,8 @@ export const MainLayout: React.FC<MainLayoutProps> = ({
   }, [showToast, navigate, hasShownApiKeyToast]); // Removed backendReady from dependencies to prevent double execution
 
   return <div className="relative min-h-screen bg-white dark:bg-black overflow-hidden">
-      {/* Full-page background grid */}
-      <div className="absolute inset-0 neon-grid pointer-events-none z-0"></div>
+      {/* Fixed full-page background grid that doesn't scroll */}
+      <div className="fixed inset-0 neon-grid pointer-events-none z-0"></div>
       {/* Floating Navigation */}
       <div className="fixed left-6 top-1/2 -translate-y-1/2 z-50">
         <SideNavigation />

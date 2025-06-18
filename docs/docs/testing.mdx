@@ -1,15 +1,29 @@
 ---
-title: Testing
+title: Testing Overview
 sidebar_position: 8
 ---
 
-# Testing Guide
+# Testing Overview
 
+<<<<<<< HEAD
 Archon employs a comprehensive testing strategy with **235+ test cases** covering unit tests, integration tests, end-to-end tests, and performance testing across all components of the system.
+=======
+Archon employs a comprehensive testing strategy across both backend (Python/pytest) and frontend (React/Vitest) components. This guide provides an overview of our testing approach, with detailed strategies available for each technology stack.
+>>>>>>> origin/main
 
-## 🧪 Testing Philosophy
+## 🎯 Core Testing Principles
 
+<<<<<<< HEAD
 Our testing approach follows the testing pyramid with extensive coverage:
+=======
+1. **Test at the Right Level**: Follow the testing pyramid - many unit tests, fewer integration tests, minimal E2E tests
+2. **Fast Feedback**: Tests should run quickly to enable rapid development
+3. **Isolation**: Each test should be independent and repeatable
+4. **User-Focused**: Test behavior and outcomes, not implementation details
+5. **Comprehensive Coverage**: Aim for high coverage of critical paths
+
+## 🏗️ Testing Architecture
+>>>>>>> origin/main
 
 ```mermaid
 %%{init:{
@@ -29,15 +43,68 @@ Our testing approach follows the testing pyramid with extensive coverage:
   }
 }}%%
 graph TB
+<<<<<<< HEAD
     subgraph "Testing Pyramid"
         E2E["E2E Tests<br/>🔍 User Journeys<br/>WebSocket/API Integration"]
         Integration["Integration Tests<br/>🔗 API & Database<br/>FastAPI TestClient"]
         Unit["Unit Tests (235+ cases)<br/>⚡ Services & Components<br/>pytest + AsyncMock"]
+=======
+    subgraph "Backend Testing (Python)"
+        PyUnit["Unit Tests<br/>⚡ pytest + mocks<br/>Services, Utils, Models"]
+        PyInt["Integration Tests<br/>🔗 FastAPI TestClient<br/>API Endpoints, Database"]
+        PyE2E["E2E Tests<br/>🔍 Full Workflows<br/>MCP Tools, WebSockets"]
+>>>>>>> origin/main
     end
 
-    Unit --> Integration
-    Integration --> E2E
+    subgraph "Frontend Testing (React)"
+        JSUnit["Component Tests<br/>⚡ Vitest + RTL<br/>Components, Hooks"]
+        JSInt["Integration Tests<br/>🔗 Page Tests<br/>User Flows, API Mocks"]
+        JSE2E["E2E Tests<br/>🔍 Playwright<br/>Full Application"]
+    end
+
+    subgraph "Test Execution"
+        Local["Local Development<br/>npm test, pytest"]
+        CI["CI/CD Pipeline<br/>GitHub Actions"]
+        UI["UI Test Runner<br/>Settings Page"]
+    end
+
+    PyUnit --> PyInt
+    PyInt --> PyE2E
+    JSUnit --> JSInt
+    JSInt --> JSE2E
+    
+    PyE2E --> Local
+    JSE2E --> Local
+    Local --> CI
+    Local --> UI
 ```
+
+## 🚀 UI Test Runner
+
+Archon includes a built-in test runner accessible from the Settings page in the UI. This allows you to:
+
+- **Run Tests On-Demand**: Execute Python and React test suites without command line access
+- **Real-time Output**: See test results streamed in real-time via WebSockets
+- **Test History**: View previous test runs and their results
+- **Visual Feedback**: Green/red indicators for pass/fail status
+- **Coverage Reports**: Access HTML coverage reports directly from the UI
+
+### Accessing the Test Runner
+
+1. Navigate to **Settings** in the Archon UI
+2. Click on the **Tests** tab
+3. Select which test suite to run:
+   - **Python Tests**: Runs pytest suite for backend
+   - **React Tests**: Runs Vitest suite for frontend
+4. Click **Run Tests** to execute
+5. View real-time output and results
+
+## 📋 Testing Strategy Documents
+
+For detailed testing strategies and best practices:
+
+- **[Python Testing Strategy](./testing-python-strategy)** - Comprehensive pytest guide for backend testing
+- **[Vitest Testing Strategy](./testing-vitest-strategy)** - React & TypeScript testing with Vitest
 
 ## 📁 Test Directory Structure
 
@@ -335,6 +402,7 @@ async def test_long_websocket_operation():
     # test code
 ```
 
+<<<<<<< HEAD
 ## 🔄 Continuous Integration
 
 Tests are automatically run on:
@@ -349,3 +417,109 @@ The CI pipeline includes:
 3. E2E tests (if applicable)
 4. Performance benchmarks
 5. Security scanning
+=======
+## 🚀 Quick Start Guide
+
+### Running Backend Tests (Python)
+
+```bash
+# Navigate to Python directory
+cd python
+
+# Run all tests
+pytest
+
+# Run with coverage
+pytest --cov=src --cov-report=html
+
+# Run specific test category
+pytest -m unit
+pytest -m integration
+pytest -m mcp
+
+# Run in watch mode (requires pytest-watch)
+ptw
+```
+
+### Running Frontend Tests (React)
+
+```bash
+# Navigate to UI directory
+cd archon-ui-main
+
+# Run all tests
+npm test
+
+# Run with coverage
+npm run test:coverage
+
+# Run with UI
+npm run test:ui
+
+# Run in watch mode
+npm run test:watch
+```
+
+### Running Tests via Docker
+
+```bash
+# Run Python tests in Docker
+docker-compose run --rm archon-pyserver pytest
+
+# Run React tests in Docker
+docker-compose run --rm archon-ui npm test
+```
+
+## 📈 Coverage Goals
+
+| Component | Target Coverage | Critical Path Coverage |
+|-----------|----------------|----------------------|
+| Python Backend | 80% | 95% |
+| React Frontend | 80% | 90% |
+| MCP Tools | 90% | 100% |
+| API Endpoints | 85% | 95% |
+| Utilities | 95% | 100% |
+
+## 🔄 Continuous Integration
+
+Our CI pipeline automatically runs tests on every push and pull request:
+
+1. **Pre-commit Hooks**: Run linting and type checking
+2. **Unit Tests**: Fast feedback on component functionality
+3. **Integration Tests**: Verify component interactions
+4. **Coverage Reports**: Track and enforce coverage requirements
+5. **E2E Tests**: Validate critical user journeys
+
+## 🛠️ Testing Tools & Frameworks
+
+### Backend (Python)
+- **pytest**: Testing framework
+- **pytest-asyncio**: Async test support
+- **pytest-mock**: Mocking utilities
+- **httpx**: Async HTTP testing
+- **coverage.py**: Code coverage
+
+### Frontend (React)
+- **Vitest**: Test runner and framework
+- **React Testing Library**: Component testing
+- **MSW**: API mocking
+- **@testing-library/user-event**: User interaction simulation
+- **Playwright**: E2E testing
+
+## 📚 Best Practices
+
+1. **Write Tests First**: Follow TDD when implementing new features
+2. **Test Behavior, Not Implementation**: Focus on what the code does, not how
+3. **Keep Tests Simple**: Each test should verify one thing
+4. **Use Descriptive Names**: Test names should explain what is being tested
+5. **Mock External Dependencies**: Keep tests fast and deterministic
+6. **Regular Test Maintenance**: Update tests when requirements change
+
+---
+
+**Next Steps:**
+- Deep dive into [Python Testing Strategy](./testing-python-strategy) for backend testing details
+- Explore [Vitest Testing Strategy](./testing-vitest-strategy) for frontend testing patterns
+- Learn about [Deployment](./deployment) for CI/CD setup
+- Check [API Reference](./api-reference) for endpoint documentation
+>>>>>>> origin/main

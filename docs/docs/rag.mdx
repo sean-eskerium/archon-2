@@ -222,6 +222,7 @@ Each RAG query returns structured results with:
 - **⚡ Error Handling**: Comprehensive error recovery and logging
 - **📈 Progress Reporting**: Smooth batch progress updates via WebSockets
 - **🎛️ Rate Limiting**: Optimized for OpenAI token limits with contextual embeddings
+- **🎚️ Crawl Depth Control**: Configurable crawl depth (1-5 levels) for precise content indexing
 
 ### Recent Fixes Applied
 
@@ -233,6 +234,7 @@ Each RAG query returns structured results with:
 - **Rate Limiting**: Reduced context window from 25k to 5k characters to stay within OpenAI limits
 - **Progress Reporting**: Fixed async/sync mismatch for smooth batch progress updates
 - **WebSocket Timing**: Added connection delays to prevent race conditions
+- **Crawl Depth**: Added user-configurable crawl depth control (1-5 levels) with UI slider
 
 </TabItem>
 <TabItem value="monitoring" label="🔥 Monitoring">
@@ -263,6 +265,114 @@ Access your monitoring at: `https://logfire-us.pydantic.dev/your-username/your-p
 
 </TabItem>
 </Tabs>
+
+## 🎛️ Crawl Depth Control
+
+### Configuring Crawl Depth
+
+<Admonition type="tip" icon="🎯" title="New Feature: Crawl Depth Control">
+You can now control how deep the crawler follows links when indexing websites. This helps balance between comprehensive coverage and avoiding irrelevant content.
+</Admonition>
+
+The crawl depth parameter (`max_depth`) controls how many levels of links the crawler will follow:
+
+<Tabs>
+<TabItem value="ui" label="🖱️ UI Control" default>
+
+When adding a URL to the knowledge base through the UI, you'll see:
+
+- **Interactive Slider**: Range from 1-5 levels
+- **Visual Indicator**: Shows current depth selection
+- **Contextual Help**: Descriptive text for each level
+- **Detailed Tooltip**: Hover over the (i) icon for comprehensive guidance
+
+```mermaid
+graph LR
+    subgraph "Crawl Depth Visualization"
+        A[🌐 Starting URL] -->|Level 1| A1[Single Page Only]
+        
+        A -->|Level 2| B[📄 Page Content]
+        B --> B1[🔗 Link 1]
+        B --> B2[🔗 Link 2]
+        B --> B3[🔗 Link 3]
+        
+        A -->|Level 3| C[📄 Page Content]
+        C --> C1[🔗 Link 1]
+        C1 --> C11[📑 Sub-link 1.1]
+        C1 --> C12[📑 Sub-link 1.2]
+        C --> C2[🔗 Link 2]
+        C2 --> C21[📑 Sub-link 2.1]
+        
+        A -->|Level 4-5| D[📄 Page Content]
+        D --> D1[🔗 Link 1]
+        D1 --> D11[📑 Sub-link 1.1]
+        D11 --> D111[📋 Deep link 1.1.1]
+        D11 --> D112[📋 Deep link 1.1.2]
+        
+        style A fill:#8b5cf6,stroke:#7c3aed,stroke-width:2px,color:#fff
+        style A1 fill:#3b82f6,stroke:#2563eb,stroke-width:2px,color:#fff
+        style B fill:#3b82f6,stroke:#2563eb,stroke-width:2px,color:#fff
+        style C fill:#10b981,stroke:#059669,stroke-width:2px,color:#fff
+        style D fill:#f59e0b,stroke:#d97706,stroke-width:2px,color:#fff
+    end
+```
+
+**UI Component Features:**
+- **Glass-morphism design** with multi-layer buttons
+- **Progressive selection** - all levels up to selected are highlighted
+- **Visual feedback** - Blue glow for selected, red glow for unselected
+- **Compact inline display** similar to star rating components
+
+</TabItem>
+<TabItem value="api" label="🔧 API Usage">
+
+```javascript
+// Via MCP Tools
+await mcp.callTool('smart_crawl_url', {
+  url: "https://docs.example.com",
+  max_depth: 3,  // Crawl 3 levels deep
+  max_concurrent: 10,
+  chunk_size: 5000
+});
+
+// Via REST API
+curl -X POST http://localhost:8080/api/knowledge-items/crawl \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://docs.example.com",
+    "knowledge_type": "technical",
+    "tags": ["documentation"],
+    "max_depth": 2
+  }'
+```
+
+</TabItem>
+</Tabs>
+
+### Depth Level Guidelines
+
+| Level | Description | Best For | Estimated Pages |
+|-------|-------------|----------|-----------------|
+| **1** | Single page or sitemap entries only | Single articles, specific pages | 1-50 pages |
+| **2** | URL + all directly linked pages (default) | Documentation sections, blogs | 10-200 pages |
+| **3** | URL + 2 levels of links | Entire sites, comprehensive docs | 50-500 pages |
+| **4-5** | Very deep crawling | Large documentation sites | 100-1000+ pages |
+
+<Admonition type="warning" icon="⚠️" title="Performance Considerations">
+Higher crawl depths may:
+- Take significantly longer to complete
+- Include duplicate or irrelevant content
+- Consume more storage and processing resources
+- May hit rate limits on some sites
+</Admonition>
+
+### Smart Crawling Behavior
+
+The crawler intelligently handles different URL types:
+
+- **Regular URLs**: Uses recursive crawling up to `max_depth`
+- **Sitemaps (sitemap.xml)**: Crawls all URLs listed but doesn't follow links within those pages
+- **Text Files (.txt)**: Downloads and processes as a single document
 
 ## 🚀 RAG System Usage
 

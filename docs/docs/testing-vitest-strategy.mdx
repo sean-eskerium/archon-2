@@ -1,0 +1,793 @@
+---
+title: Vitest Testing Strategy
+sidebar_position: 10
+---
+
+# Vitest Testing Strategy for React & TypeScript
+
+This document outlines Archon's comprehensive frontend testing strategy using Vitest with React and TypeScript, incorporating the latest best practices for 2024.
+
+## 🎯 Testing Philosophy
+
+Our frontend testing follows these core principles:
+
+1. **User-Centric Testing**: Test behavior from the user's perspective, not implementation details
+2. **Component Isolation**: Each component test should be independent
+3. **TypeScript Safety**: Leverage TypeScript for type-safe tests
+4. **Fast Feedback**: Vitest's speed enables rapid test-driven development
+5. **Meaningful Coverage**: Focus on critical user paths over coverage numbers
+
+## 📁 Project Structure
+
+```
+archon-ui-main/
+├── vite.config.ts          # Vite & Vitest configuration
+├── vitest.setup.ts         # Global test setup
+├── tsconfig.json           # TypeScript configuration
+├── src/
+│   ├── components/         # React components
+│   ├── pages/             # Page components
+│   ├── hooks/             # Custom React hooks
+│   ├── services/          # API services
+│   ├── utils/             # Utility functions
+│   └── types/             # TypeScript types
+├── test/
+│   ├── setup.ts           # Test environment setup
+│   ├── fixtures/          # Test data and mocks
+│   ├── utils/             # Test utilities
+│   └── mocks/             # Service mocks
+└── __tests__/             # Component-adjacent tests
+    ├── components/
+    ├── pages/
+    ├── hooks/
+    └── services/
+```
+
+## 🔧 Configuration
+
+### vite.config.ts
+
+```typescript
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { resolve } from 'path'
+
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src'),
+      '@test': resolve(__dirname, './test'),
+    },
+  },
+  test: {
+    globals: true,
+    environment: 'jsdom',
+    setupFiles: './test/setup.ts',
+    css: {
+      modules: {
+        classNameStrategy: 'non-scoped',
+      },
+    },
+    coverage: {
+      provider: 'v8',
+      reporter: ['text', 'json', 'html'],
+      exclude: [
+        'node_modules/',
+        'test/',
+        '**/*.d.ts',
+        '**/*.config.*',
+        '**/mockServiceWorker.js',
+      ],
+      thresholds: {
+        branches: 80,
+        functions: 80,
+        lines: 80,
+        statements: 80,
+      },
+    },
+    // Improve test performance
+    pool: 'forks',
+    poolOptions: {
+      forks: {
+        singleFork: true,
+      },
+    },
+  },
+})
+```
+
+### test/setup.ts
+
+```typescript
+import '@testing-library/jest-dom'
+import { cleanup } from '@testing-library/react'
+import { afterEach, beforeAll, afterAll, vi } from 'vitest'
+import { server } from './mocks/server'
+
+// Establish API mocking before all tests
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: 'error' })
+})
+
+// Clean up after each test
+afterEach(() => {
+  cleanup()
+  server.resetHandlers()
+  vi.clearAllMocks()
+})
+
+// Clean up after all tests
+afterAll(() => {
+  server.close()
+})
+
+// Mock window.matchMedia
+Object.defineProperty(window, 'matchMedia', {
+  writable: true,
+  value: vi.fn().mockImplementation(query => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  })),
+})
+
+// Mock IntersectionObserver
+global.IntersectionObserver = vi.fn().mockImplementation(() => ({
+  observe: vi.fn(),
+  unobserve: vi.fn(),
+  disconnect: vi.fn(),
+}))
+```
+
+## 🧪 Testing Patterns
+
+### 1. Component Testing
+
+```typescript
+// __tests__/components/KnowledgeSearch.test.tsx
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { KnowledgeSearch } from '@/components/KnowledgeSearch'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+describe('KnowledgeSearch', () => {
+  const createWrapper = () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+      },
+    })
+    
+    return ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>
+        {children}
+      </QueryClientProvider>
+    )
+  }
+
+  it('should render search input and handle user search', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const onSearch = vi.fn()
+    
+    render(
+      <KnowledgeSearch onSearch={onSearch} placeholder="Search knowledge base..." />,
+      { wrapper: createWrapper() }
+    )
+    
+    // Act
+    const searchInput = screen.getByPlaceholderText('Search knowledge base...')
+    await user.type(searchInput, 'authentication')
+    await user.keyboard('{Enter}')
+    
+    // Assert
+    expect(onSearch).toHaveBeenCalledWith('authentication')
+    expect(searchInput).toHaveValue('authentication')
+  })
+
+  it('should display search results when data is returned', async () => {
+    // Arrange
+    const mockResults = [
+      { id: '1', title: 'Auth Guide', content: 'Authentication setup...' },
+      { id: '2', title: 'JWT Tokens', content: 'Using JWT for auth...' },
+    ]
+    
+    render(
+      <KnowledgeSearch initialResults={mockResults} />,
+      { wrapper: createWrapper() }
+    )
+    
+    // Assert
+    await waitFor(() => {
+      expect(screen.getByText('Auth Guide')).toBeInTheDocument()
+      expect(screen.getByText('JWT Tokens')).toBeInTheDocument()
+    })
+  })
+
+  it('should handle search errors gracefully', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    const onError = vi.fn()
+    
+    // Mock API to return error
+    server.use(
+      rest.post('/api/search', (req, res, ctx) => {
+        return res(ctx.status(500), ctx.json({ error: 'Search failed' }))
+      })
+    )
+    
+    render(
+      <KnowledgeSearch onError={onError} />,
+      { wrapper: createWrapper() }
+    )
+    
+    // Act
+    const searchInput = screen.getByRole('searchbox')
+    await user.type(searchInput, 'test query')
+    await user.keyboard('{Enter}')
+    
+    // Assert
+    await waitFor(() => {
+      expect(screen.getByText(/search failed/i)).toBeInTheDocument()
+      expect(onError).toHaveBeenCalledWith(expect.any(Error))
+    })
+  })
+})
+```
+
+### 2. Hook Testing
+
+```typescript
+// __tests__/hooks/useWebSocket.test.ts
+import { renderHook, act, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { useWebSocket } from '@/hooks/useWebSocket'
+import WS from 'vitest-websocket-mock'
+
+describe('useWebSocket', () => {
+  let server: WS
+  
+  beforeEach(async () => {
+    server = new WS('ws://localhost:8080/ws')
+  })
+  
+  afterEach(() => {
+    WS.clean()
+  })
+
+  it('should connect to WebSocket and handle messages', async () => {
+    // Arrange
+    const onMessage = vi.fn()
+    const { result } = renderHook(() => 
+      useWebSocket('ws://localhost:8080/ws', { onMessage })
+    )
+    
+    // Wait for connection
+    await server.connected
+    
+    // Act - Send message from server
+    act(() => {
+      server.send(JSON.stringify({ type: 'update', data: 'test data' }))
+    })
+    
+    // Assert
+    await waitFor(() => {
+      expect(result.current.readyState).toBe(WebSocket.OPEN)
+      expect(onMessage).toHaveBeenCalledWith({
+        type: 'update',
+        data: 'test data',
+      })
+    })
+  })
+
+  it('should handle reconnection on disconnect', async () => {
+    // Arrange
+    const { result } = renderHook(() => 
+      useWebSocket('ws://localhost:8080/ws', { 
+        reconnectInterval: 100,
+        maxReconnectAttempts: 3,
+      })
+    )
+    
+    await server.connected
+    
+    // Act - Simulate disconnect
+    act(() => {
+      server.close()
+    })
+    
+    // Assert - Should attempt reconnection
+    await waitFor(() => {
+      expect(result.current.readyState).toBe(WebSocket.CLOSED)
+    })
+    
+    // Create new server for reconnection
+    server = new WS('ws://localhost:8080/ws')
+    
+    await waitFor(() => {
+      expect(result.current.readyState).toBe(WebSocket.OPEN)
+    }, { timeout: 500 })
+  })
+})
+```
+
+### 3. Service/API Testing
+
+```typescript
+// __tests__/services/api.test.ts
+import { describe, it, expect, beforeEach } from 'vitest'
+import { apiClient, KnowledgeService } from '@/services/api'
+import { server } from '@test/mocks/server'
+import { rest } from 'msw'
+
+describe('KnowledgeService', () => {
+  beforeEach(() => {
+    // Reset any runtime handlers
+    server.resetHandlers()
+  })
+
+  describe('searchKnowledge', () => {
+    it('should search knowledge base with query', async () => {
+      // Arrange
+      const mockResponse = {
+        results: [
+          { id: '1', content: 'Test result 1', score: 0.95 },
+          { id: '2', content: 'Test result 2', score: 0.87 },
+        ],
+        total: 2,
+      }
+      
+      server.use(
+        rest.post('/api/rag/query', async (req, res, ctx) => {
+          const body = await req.json()
+          expect(body).toEqual({ query: 'test query', limit: 10 })
+          return res(ctx.json(mockResponse))
+        })
+      )
+      
+      // Act
+      const results = await KnowledgeService.searchKnowledge('test query', 10)
+      
+      // Assert
+      expect(results).toEqual(mockResponse)
+    })
+
+    it('should handle API errors properly', async () => {
+      // Arrange
+      server.use(
+        rest.post('/api/rag/query', (req, res, ctx) => {
+          return res(
+            ctx.status(500),
+            ctx.json({ error: 'Internal server error' })
+          )
+        })
+      )
+      
+      // Act & Assert
+      await expect(
+        KnowledgeService.searchKnowledge('test')
+      ).rejects.toThrow('Search failed: Internal server error')
+    })
+  })
+
+  describe('uploadDocument', () => {
+    it('should upload document with progress tracking', async () => {
+      // Arrange
+      const file = new File(['test content'], 'test.pdf', { 
+        type: 'application/pdf' 
+      })
+      const onProgress = vi.fn()
+      
+      server.use(
+        rest.post('/api/documents/upload', (req, res, ctx) => {
+          return res(
+            ctx.json({
+              document_id: 'doc-123',
+              filename: 'test.pdf',
+              chunks: 5,
+            })
+          )
+        })
+      )
+      
+      // Act
+      const result = await KnowledgeService.uploadDocument(file, {
+        onProgress,
+        metadata: { type: 'technical' },
+      })
+      
+      // Assert
+      expect(result.document_id).toBe('doc-123')
+      expect(onProgress).toHaveBeenCalled()
+    })
+  })
+})
+```
+
+### 4. Integration Testing
+
+```typescript
+// __tests__/pages/KnowledgeBasePage.test.tsx
+import { describe, it, expect } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { KnowledgeBasePage } from '@/pages/KnowledgeBasePage'
+import { BrowserRouter } from 'react-router-dom'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+describe('KnowledgeBasePage Integration', () => {
+  const renderPage = () => {
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    
+    return render(
+      <BrowserRouter>
+        <QueryClientProvider client={queryClient}>
+          <KnowledgeBasePage />
+        </QueryClientProvider>
+      </BrowserRouter>
+    )
+  }
+
+  it('should display uploaded documents and allow searching', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    renderPage()
+    
+    // Wait for initial load
+    await waitFor(() => {
+      expect(screen.getByText(/knowledge base/i)).toBeInTheDocument()
+    })
+    
+    // Act - Upload a document
+    const fileInput = screen.getByLabelText(/upload document/i)
+    const file = new File(['test content'], 'test-doc.pdf', { 
+      type: 'application/pdf' 
+    })
+    
+    await user.upload(fileInput, file)
+    
+    // Assert - Document appears in list
+    await waitFor(() => {
+      expect(screen.getByText('test-doc.pdf')).toBeInTheDocument()
+    })
+    
+    // Act - Search for content
+    const searchInput = screen.getByPlaceholderText(/search knowledge/i)
+    await user.type(searchInput, 'test content')
+    await user.keyboard('{Enter}')
+    
+    // Assert - Search results appear
+    await waitFor(() => {
+      expect(screen.getByText(/1 result found/i)).toBeInTheDocument()
+    })
+  })
+
+  it('should handle concurrent operations gracefully', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    renderPage()
+    
+    // Act - Trigger multiple operations
+    const operations = Promise.all([
+      user.click(screen.getByText(/refresh/i)),
+      user.click(screen.getByText(/crawl website/i)),
+      user.type(screen.getByRole('searchbox'), 'concurrent test'),
+    ])
+    
+    // Assert - All operations complete without errors
+    await expect(operations).resolves.not.toThrow()
+    
+    // UI should remain responsive
+    expect(screen.getByText(/knowledge base/i)).toBeInTheDocument()
+  })
+})
+```
+
+## 🎭 Mocking Strategies
+
+### MSW for API Mocking
+
+```typescript
+// test/mocks/handlers.ts
+import { rest } from 'msw'
+
+export const handlers = [
+  // Knowledge API handlers
+  rest.post('/api/rag/query', async (req, res, ctx) => {
+    const { query } = await req.json()
+    
+    return res(
+      ctx.json({
+        results: [
+          {
+            id: '1',
+            content: `Result for query: ${query}`,
+            score: 0.95,
+            metadata: { source: 'test' },
+          },
+        ],
+        total: 1,
+      })
+    )
+  }),
+  
+  // WebSocket handlers
+  rest.get('/api/ws', (req, res, ctx) => {
+    return res(
+      ctx.status(101),
+      ctx.set('Upgrade', 'websocket'),
+      ctx.set('Connection', 'Upgrade'),
+    )
+  }),
+  
+  // File upload handler
+  rest.post('/api/documents/upload', async (req, res, ctx) => {
+    const data = await req.formData()
+    const file = data.get('file') as File
+    
+    return res(
+      ctx.json({
+        document_id: 'doc-' + Date.now(),
+        filename: file.name,
+        size: file.size,
+        chunks: Math.ceil(file.size / 1000),
+      })
+    )
+  }),
+]
+
+// test/mocks/server.ts
+import { setupServer } from 'msw/node'
+import { handlers } from './handlers'
+
+export const server = setupServer(...handlers)
+```
+
+### Component Mock Utilities
+
+```typescript
+// test/utils/mock-components.tsx
+import { ReactNode } from 'react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { BrowserRouter } from 'react-router-dom'
+import { ThemeProvider } from '@/contexts/ThemeContext'
+
+interface WrapperProps {
+  children: ReactNode
+}
+
+export const createWrapper = (options = {}) => {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  })
+  
+  return ({ children }: WrapperProps) => (
+    <BrowserRouter>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
+      </QueryClientProvider>
+    </BrowserRouter>
+  )
+}
+
+// Custom render function
+import { render as rtlRender } from '@testing-library/react'
+
+export const render = (ui: ReactElement, options = {}) => {
+  return rtlRender(ui, {
+    wrapper: createWrapper(),
+    ...options,
+  })
+}
+```
+
+## 🚀 Testing Commands
+
+### Running Tests
+
+```bash
+# Run all tests
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Run tests with UI
+npm run test:ui
+
+# Run tests with coverage
+npm run test:coverage
+
+# Run specific test file
+npm test KnowledgeSearch
+
+# Run tests matching pattern
+npm test -- --grep "should handle"
+
+# Run tests in specific directory
+npm test components/
+```
+
+### Debugging Tests
+
+```bash
+# Run tests in debug mode
+npm run test:debug
+
+# Run single test file in debug mode
+npm test -- --inspect-brk --single-run components/KnowledgeSearch.test.tsx
+
+# Show DOM output for debugging
+DEBUG_PRINT_LIMIT=0 npm test
+```
+
+## 📊 Code Coverage
+
+### Coverage Configuration
+
+```json
+// package.json scripts
+{
+  "scripts": {
+    "test": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest watch",
+    "test:debug": "vitest --inspect-brk --single-run"
+  }
+}
+```
+
+### Coverage Requirements
+
+- **Overall Coverage**: Minimum 80%
+- **Critical Components**: 90%+ (auth, data display, forms)
+- **New Components**: 85%+ coverage required for PRs
+- **Utilities**: 95%+ coverage
+
+## 🔄 CI/CD Integration
+
+### GitHub Actions Workflow
+
+```yaml
+name: Frontend Tests
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: Install dependencies
+      run: npm ci
+    
+    - name: Type check
+      run: npm run type-check
+    
+    - name: Run tests with coverage
+      run: npm run test:coverage
+    
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/coverage-final.json
+        flags: frontend
+        fail_ci_if_error: true
+    
+    - name: Run E2E tests
+      run: npm run test:e2e
+```
+
+## 🎯 Testing Checklist
+
+### Component Testing
+
+- [ ] Test user interactions (clicks, typing, etc.)
+- [ ] Test component states (loading, error, success)
+- [ ] Test prop variations
+- [ ] Test accessibility (ARIA labels, keyboard nav)
+- [ ] Test responsive behavior
+- [ ] Test error boundaries
+- [ ] Mock external dependencies
+- [ ] Test edge cases
+
+### Hook Testing
+
+- [ ] Test initial state
+- [ ] Test state updates
+- [ ] Test cleanup/unmounting
+- [ ] Test error scenarios
+- [ ] Test with different parameters
+- [ ] Test timing and debouncing
+
+### Integration Testing
+
+- [ ] Test complete user flows
+- [ ] Test page transitions
+- [ ] Test data persistence
+- [ ] Test error recovery
+- [ ] Test loading states
+- [ ] Test concurrent operations
+
+## 📚 Best Practices Summary
+
+1. **User-Centric Testing**: Use Testing Library queries that reflect how users interact
+2. **Async Handling**: Always use `waitFor` or `findBy` queries for async operations
+3. **Mock Strategically**: Mock at the network boundary, not component boundaries
+4. **Test Accessibility**: Include tests for keyboard navigation and screen readers
+5. **Avoid Implementation Details**: Don't test component internals or state
+6. **Use TypeScript**: Leverage type safety in tests
+7. **Keep Tests Fast**: Mock heavy operations and external dependencies
+8. **Test Real Scenarios**: Focus on actual user workflows
+9. **Maintainable Tests**: Use descriptive names and avoid brittle selectors
+10. **Regular Updates**: Keep tests synchronized with component changes
+
+## 🛠️ Troubleshooting
+
+### Common Issues
+
+**DOM Testing Issues:**
+```typescript
+// Use data-testid for reliable element selection
+<button data-testid="submit-button">Submit</button>
+
+// In tests
+const button = screen.getByTestId('submit-button')
+```
+
+**Async Testing Issues:**
+```typescript
+// Always wait for async operations
+await waitFor(() => {
+  expect(screen.getByText('Loaded')).toBeInTheDocument()
+})
+
+// Or use findBy queries
+const element = await screen.findByText('Loaded')
+```
+
+**Timer Issues:**
+```typescript
+// Use vi.useFakeTimers() for timer-based code
+vi.useFakeTimers()
+// ... perform actions ...
+vi.runAllTimers()
+vi.useRealTimers()
+```
+
+---
+
+For more details, see:
+- [Testing Overview](./testing) - General testing documentation
+- [Python Testing Strategy](./testing-python-strategy) - Backend testing with pytest
+- [UI Documentation](./ui) - Frontend component documentation

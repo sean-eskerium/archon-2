@@ -96,6 +96,7 @@ class WebSocketService {
 export const knowledgeWebSocket = new WebSocketService();
 export const crawlWebSocket = new WebSocketService();
 export const projectListWebSocket = new WebSocketService();
+export const healthWebSocket = new WebSocketService();
 
 // Task Update WebSocket Service for real-time task updates
 interface TaskUpdateData {

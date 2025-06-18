@@ -465,11 +465,11 @@ async def database_metrics():
             span.set_attribute("error", str(e))
             raise HTTPException(status_code=500, detail={'error': str(e)})
 
-@router.get("/health")
+@router.get("/settings/health")
 async def settings_health():
     """Health check for settings API."""
     with logfire.span("api_settings_health") as span:
-        span.set_attribute("endpoint", "/api/health")
+        span.set_attribute("endpoint", "/api/settings/health")
         span.set_attribute("method", "GET")
         
         logfire.info("Settings health check requested")

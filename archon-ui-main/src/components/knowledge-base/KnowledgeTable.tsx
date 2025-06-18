@@ -128,7 +128,7 @@ export const KnowledgeTable: React.FC<KnowledgeTableProps> = ({ items, onDelete 
               Sources
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-zinc-400 uppercase tracking-wider">
-              Chunks
+              Words
             </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-zinc-400 uppercase tracking-wider">
               Updated
@@ -174,6 +174,7 @@ const GroupedKnowledgeTableRow: React.FC<GroupedKnowledgeTableRowProps> = ({
   getFrequencyDisplay 
 }) => {
   const [showTooltip, setShowTooltip] = useState(false);
+  const [showTagsTooltip, setShowTagsTooltip] = useState(false);
 
   const isGrouped = groupedItem.items.length > 1;
   const firstItem = groupedItem.items[0];
@@ -208,15 +209,15 @@ const GroupedKnowledgeTableRow: React.FC<GroupedKnowledgeTableRowProps> = ({
 
   return (
     <tr className="hover:bg-gray-50 dark:hover:bg-zinc-800/50">
-      <td className="px-6 py-4 whitespace-nowrap">
+      <td className="px-6 py-4 max-w-xs">
         <div className="flex items-center gap-2">
           {firstItem.metadata.source_type === 'url' ? (
-            <LinkIcon className="w-4 h-4 text-blue-500" />
+            <LinkIcon className="w-4 h-4 text-blue-500 flex-shrink-0" />
           ) : (
-            <Upload className="w-4 h-4 text-pink-500" />
+            <Upload className="w-4 h-4 text-pink-500 flex-shrink-0" />
           )}
-          <TypeIcon className={`w-4 h-4 ${typeIconColor}`} />
-          <div className="text-sm font-medium text-gray-900 dark:text-white">
+          <TypeIcon className={`w-4 h-4 ${typeIconColor} flex-shrink-0`} />
+          <div className="text-sm font-medium text-gray-900 dark:text-white truncate max-w-[200px]" title={isGrouped ? groupedItem.domain : firstItem.title}>
             {isGrouped ? groupedItem.domain : firstItem.title}
           </div>
         </div>
@@ -227,16 +228,37 @@ const GroupedKnowledgeTableRow: React.FC<GroupedKnowledgeTableRowProps> = ({
         </Badge>
       </td>
       <td className="px-6 py-4 whitespace-nowrap">
-        <div className="flex flex-wrap gap-1">
-          {groupedItem.metadata.tags?.slice(0, 2).map(tag => (
-            <Badge key={tag} color="purple" variant="outline">
-              {tag}
-            </Badge>
-          ))}
-          {(groupedItem.metadata.tags?.length || 0) > 2 && (
-            <Badge color="gray" variant="outline">
-              +{(groupedItem.metadata.tags?.length || 0) - 2}
-            </Badge>
+        <div className="relative">
+          <div 
+            className="flex flex-wrap gap-1"
+            onMouseEnter={() => (groupedItem.metadata.tags?.length || 0) > 3 && setShowTagsTooltip(true)}
+            onMouseLeave={() => setShowTagsTooltip(false)}
+          >
+            {groupedItem.metadata.tags?.slice(0, 3).map(tag => (
+              <Badge key={tag} color="purple" variant="outline">
+                {tag}
+              </Badge>
+            ))}
+            {(groupedItem.metadata.tags?.length || 0) > 3 && (
+              <Badge color="gray" variant="outline" className="cursor-pointer">
+                +{(groupedItem.metadata.tags?.length || 0) - 3}
+              </Badge>
+            )}
+          </div>
+          
+          {/* Tags Tooltip */}
+          {showTagsTooltip && (groupedItem.metadata.tags?.length || 0) > 3 && (
+            <div className="absolute bottom-full mb-2 left-0 bg-black dark:bg-zinc-800 text-white text-xs rounded-lg py-2 px-3 shadow-lg z-50 max-w-xs">
+              <div className="font-semibold text-purple-300 mb-1">All Tags:</div>
+              <div className="flex flex-wrap gap-1">
+                {groupedItem.metadata.tags?.map((tag, index) => (
+                  <span key={index} className="bg-purple-500/20 text-purple-300 px-2 py-1 rounded text-xs">
+                    {tag}
+                  </span>
+                ))}
+              </div>
+              <div className="absolute top-full left-4 border-4 border-transparent border-t-black dark:border-t-zinc-800"></div>
+            </div>
           )}
         </div>
       </td>

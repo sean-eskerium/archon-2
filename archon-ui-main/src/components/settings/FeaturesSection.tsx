@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Moon, Sun, FileText, Layout, Bot, Settings, Flame } from 'lucide-react';
+import { Moon, Sun, FileText, Layout, Bot, Settings, Palette, Flame, Monitor } from 'lucide-react';
 import { Toggle } from '../ui/Toggle';
+import { Card } from '../ui/Card';
 import { useTheme } from '../../contexts/ThemeContext';
 import { credentialsService } from '../../services/credentialsService';
 import { useToast } from '../../contexts/ToastContext';
+import { serverHealthService } from '../../services/serverHealthService';
 
 export const FeaturesSection = () => {
   const {
@@ -19,6 +21,7 @@ export const FeaturesSection = () => {
   const [agentsEnabled, setAgentsEnabled] = useState(false);
   
   const [logfireEnabled, setLogfireEnabled] = useState(false);
+  const [disconnectScreenEnabled, setDisconnectScreenEnabled] = useState(true);
   const [loading, setLoading] = useState(true);
   const [projectsSchemaValid, setProjectsSchemaValid] = useState(true);
   const [projectsSchemaError, setProjectsSchemaError] = useState<string | null>(null);
@@ -33,10 +36,11 @@ export const FeaturesSection = () => {
       setLoading(true);
       
       // Load both Logfire and Projects settings, plus check projects schema
-      const [logfireResponse, projectsResponse, projectsHealthResponse] = await Promise.all([
+      const [logfireResponse, projectsResponse, projectsHealthResponse, disconnectScreenRes] = await Promise.all([
         credentialsService.getCredential('LOGFIRE_ENABLED').catch(() => ({ value: undefined })),
         credentialsService.getCredential('PROJECTS_ENABLED').catch(() => ({ value: undefined })),
-        fetch(`${credentialsService['baseUrl']}/api/projects/health`).catch(() => null)
+        fetch(`${credentialsService['baseUrl']}/api/projects/health`).catch(() => null),
+        credentialsService.getCredential('DISCONNECT_SCREEN_ENABLED').catch(() => ({ value: 'true' }))
       ]);
       
       // Set Logfire setting
@@ -45,6 +49,9 @@ export const FeaturesSection = () => {
       } else {
         setLogfireEnabled(false);
       }
+      
+      // Set Disconnect Screen setting
+      setDisconnectScreenEnabled(disconnectScreenRes.value === 'true');
       
       // Check projects schema health
       console.log('🔍 Projects health response:', {
@@ -89,6 +96,7 @@ export const FeaturesSection = () => {
       // Default values on error
       setLogfireEnabled(false);
       setProjectsEnabled(true);
+      setDisconnectScreenEnabled(true);
       setProjectsSchemaValid(false);
       setProjectsSchemaError('Failed to load settings');
     } finally {
@@ -164,112 +172,157 @@ export const FeaturesSection = () => {
     setTheme(checked ? 'dark' : 'light');
   };
 
+  const handleDisconnectScreenToggle = async (checked: boolean) => {
+    if (loading) return;
+    
+    try {
+      setLoading(true);
+      setDisconnectScreenEnabled(checked);
+
+      await serverHealthService.updateSettings(checked);
+
+      showToast(
+        checked ? 'Disconnect Screen Enabled' : 'Disconnect Screen Disabled', 
+        checked ? 'success' : 'warning'
+      );
+    } catch (error) {
+      console.error('Failed to update disconnect screen setting:', error);
+      setDisconnectScreenEnabled(!checked);
+      showToast('Failed to update disconnect screen setting', 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      <div className="flex items-center mb-4">
-        <Settings className="mr-2 text-blue-500" size={20} />
-        <h2 className="text-xl font-semibold text-gray-800 dark:text-white">
-          Features & Theme
-        </h2>
-      </div>
-
-      <div className="grid grid-cols-2 gap-x-4 gap-y-2">
-        {/* Theme Toggle */}
-        <div className="flex items-center gap-4 p-4 rounded-lg bg-gradient-to-r from-purple-500/5 to-purple-500/0">
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-gray-800 dark:text-white">
-              Dark Mode
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Switch between light and dark themes
-            </p>
-          </div>
-          <div className="flex-shrink-0">
-            <Toggle checked={isDarkMode} onCheckedChange={handleThemeToggle} accentColor="purple" icon={isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />} />
-          </div>
+    <>
+      <div>
+        <div className="flex items-center mb-4">
+          <Palette className="mr-2 text-purple-500 filter drop-shadow-[0_0_8px_rgba(168,85,247,0.8)]" size={20} />
+          <h2 className="text-xl font-semibold text-gray-800 dark:text-white">
+            Features & Theme
+          </h2>
         </div>
 
-        {/* Projects Toggle */}
-        <div className="flex items-center gap-4 p-4 rounded-lg bg-gradient-to-r from-blue-500/5 to-blue-500/0">
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-gray-800 dark:text-white">
-              Projects
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Enable Projects and Tasks functionality
-            </p>
-            {!projectsSchemaValid && projectsSchemaError && (
-              <p className="text-xs text-red-500 dark:text-red-400 mt-1">
-                ⚠️ {projectsSchemaError}
+        <div className="grid grid-cols-2 gap-4">
+          {/* Theme Toggle */}
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-purple-500/10 to-purple-600/5 backdrop-blur-sm border border-purple-500/20 shadow-lg">
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 dark:text-white">
+                Dark Mode
               </p>
-            )}
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Switch between light and dark themes
+              </p>
+            </div>
+            <div className="flex-shrink-0">
+              <Toggle checked={isDarkMode} onCheckedChange={handleThemeToggle} accentColor="purple" icon={isDarkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />} />
+            </div>
           </div>
-          <div className="flex-shrink-0">
-            <Toggle 
-              checked={projectsEnabled} 
-              onCheckedChange={handleProjectsToggle} 
-              accentColor="blue" 
-              icon={<FileText className="w-5 h-5" />}
-              disabled={loading || !projectsSchemaValid}
-            />
-          </div>
-        </div>
 
-        {/* COMMENTED OUT FOR FUTURE RELEASE - AG-UI Library Toggle */}
-        {/*
-        <div className="flex items-center gap-4 p-4 rounded-lg bg-gradient-to-r from-pink-500/5 to-pink-500/0">
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-gray-800 dark:text-white">
-              AG-UI Library
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Enable component library functionality
-            </p>
+          {/* Projects Toggle */}
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-blue-500/10 to-blue-600/5 backdrop-blur-sm border border-blue-500/20 shadow-lg">
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 dark:text-white">
+                Projects
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Enable Projects and Tasks functionality
+              </p>
+              {!projectsSchemaValid && projectsSchemaError && (
+                <p className="text-xs text-red-500 dark:text-red-400 mt-1">
+                  ⚠️ {projectsSchemaError}
+                </p>
+              )}
+            </div>
+            <div className="flex-shrink-0">
+              <Toggle 
+                checked={projectsEnabled} 
+                onCheckedChange={handleProjectsToggle} 
+                accentColor="blue" 
+                icon={<FileText className="w-5 h-5" />}
+                disabled={loading || !projectsSchemaValid}
+              />
+            </div>
           </div>
-          <div className="flex-shrink-0">
-            <Toggle checked={agUILibraryEnabled} onCheckedChange={setAgUILibraryEnabled} accentColor="pink" icon={<Layout className="w-5 h-5" />} />
-          </div>
-        </div>
-        */}
 
-        {/* COMMENTED OUT FOR FUTURE RELEASE - Agents Toggle */}
-        {/*
-        <div className="flex items-center gap-4 p-4 rounded-lg bg-gradient-to-r from-green-500/5 to-green-500/0">
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-gray-800 dark:text-white">
-              Agents
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Enable AI agents for automated tasks
-            </p>
+          {/* COMMENTED OUT FOR FUTURE RELEASE - AG-UI Library Toggle */}
+          {/*
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-pink-500/10 to-pink-600/5 backdrop-blur-sm border border-pink-500/20 shadow-lg">
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 dark:text-white">
+                AG-UI Library
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Enable component library functionality
+              </p>
+            </div>
+            <div className="flex-shrink-0">
+              <Toggle checked={agUILibraryEnabled} onCheckedChange={setAgUILibraryEnabled} accentColor="pink" icon={<Layout className="w-5 h-5" />} />
+            </div>
           </div>
-          <div className="flex-shrink-0">
-            <Toggle checked={agentsEnabled} onCheckedChange={setAgentsEnabled} accentColor="green" icon={<Bot className="w-5 h-5" />} />
-          </div>
-        </div>
-        */}
+          */}
 
-        {/* Pydantic Logfire Toggle */}
-        <div className="flex items-center gap-4 p-4 rounded-lg bg-gradient-to-r from-orange-500/5 to-orange-500/0">
-          <div className="flex-1 min-w-0">
-            <p className="font-medium text-gray-800 dark:text-white">
-              Pydantic Logfire
-            </p>
-            <p className="text-sm text-gray-500 dark:text-gray-400">
-              Structured logging and observability platform
-            </p>
+          {/* COMMENTED OUT FOR FUTURE RELEASE - Agents Toggle */}
+          {/*
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-green-500/10 to-green-600/5 backdrop-blur-sm border border-green-500/20 shadow-lg">
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 dark:text-white">
+                Agents
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Enable AI agents for automated tasks
+              </p>
+            </div>
+            <div className="flex-shrink-0">
+              <Toggle checked={agentsEnabled} onCheckedChange={setAgentsEnabled} accentColor="green" icon={<Bot className="w-5 h-5" />} />
+            </div>
           </div>
-          <div className="flex-shrink-0">
-            <Toggle 
-              checked={logfireEnabled} 
-              onCheckedChange={handleLogfireToggle} 
-              accentColor="orange" 
-              icon={<Flame className="w-5 h-5" />}
-              disabled={loading}
-            />
+          */}
+
+          {/* Pydantic Logfire Toggle */}
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-orange-500/10 to-orange-600/5 backdrop-blur-sm border border-orange-500/20 shadow-lg">
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 dark:text-white">
+                Pydantic Logfire
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Structured logging and observability platform
+              </p>
+            </div>
+            <div className="flex-shrink-0">
+              <Toggle 
+                checked={logfireEnabled} 
+                onCheckedChange={handleLogfireToggle} 
+                accentColor="orange" 
+                icon={<Flame className="w-5 h-5" />}
+                disabled={loading}
+              />
+            </div>
+          </div>
+
+          {/* Disconnect Screen Toggle */}
+          <div className="flex items-center gap-4 p-4 rounded-xl bg-gradient-to-br from-green-500/10 to-green-600/5 backdrop-blur-sm border border-green-500/20 shadow-lg">
+            <div className="flex-1 min-w-0">
+              <p className="font-medium text-gray-800 dark:text-white">
+                Disconnect Screen
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Show disconnect screen when server disconnects
+              </p>
+            </div>
+            <div className="flex-shrink-0">
+              <Toggle 
+                checked={disconnectScreenEnabled} 
+                onCheckedChange={handleDisconnectScreenToggle} 
+                accentColor="green" 
+                icon={<Monitor className="w-5 h-5" />}
+                disabled={loading}
+              />
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </>
   );
 };
