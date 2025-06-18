@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   ChevronDown, 
@@ -21,6 +21,7 @@ import { Card } from './ui/Card';
 import { Button } from './ui/Button';
 import { Badge } from './ui/Badge';
 import { CrawlProgressData } from '../services/crawlProgressServiceV2';
+import { useTerminalScroll } from '../hooks/useTerminalScroll';
 
 interface CrawlingProgressCardProps {
   progressData: CrawlProgressData;
@@ -48,8 +49,11 @@ export const CrawlingProgressCard: React.FC<CrawlingProgressCardProps> = ({
   onRetry,
   onDismiss
 }) => {
-  const [showLogs, setShowLogs] = useState(false);
   const [showDetailedProgress, setShowDetailedProgress] = useState(true);
+  const [showLogs, setShowLogs] = useState(false);
+  
+  // Use the terminal scroll hook for auto-scrolling logs
+  const logsContainerRef = useTerminalScroll([progressData.logs], showLogs);
 
   // Calculate individual progress steps based on current status and percentage
   const getProgressSteps = (): ProgressStep[] => {
@@ -581,7 +585,10 @@ export const CrawlingProgressCard: React.FC<CrawlingProgressCardProps> = ({
                 transition={{ duration: 0.2 }}
                 className="overflow-hidden"
               >
-                <div className="bg-gray-900 dark:bg-black rounded-md p-3 max-h-32 overflow-y-auto">
+                <div 
+                  ref={logsContainerRef}
+                  className="bg-gray-900 dark:bg-black rounded-md p-3 max-h-32 overflow-y-auto"
+                >
                   <div className="space-y-1 font-mono text-xs">
                     {progressData.logs.map((log, index) => (
                       <div key={index} className="text-green-400">

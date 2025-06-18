@@ -144,6 +144,18 @@ class TestService {
     onError?: (error: Error) => void,
     onComplete?: () => void
   ): Promise<string> {
+    return this.runTestsWithEndpoint('/api/run-tests-with-coverage', onMessage, onError, onComplete);
+  }
+
+  /**
+   * Generic method to run tests with any endpoint
+   */
+  private async runTestsWithEndpoint(
+    endpoint: string,
+    onMessage: (message: TestStreamMessage) => void,
+    onError?: (error: Error) => void,
+    onComplete?: () => void
+  ): Promise<string> {
     const execution_id = crypto.randomUUID();
     
     try {
@@ -152,12 +164,12 @@ class TestService {
         type: 'status',
         execution_id,
         data: { status: 'running' },
-        message: 'Starting React UI tests...',
+        message: 'Starting React UI tests with coverage...',
         timestamp: new Date().toISOString()
       });
 
       // Call the Vite dev server endpoint to run real vitest tests
-      const response = await fetch('/api/run-tests', {
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -224,6 +236,54 @@ class TestService {
       });
       onError?.(error instanceof Error ? error : new Error(errorMessage));
       return execution_id;
+    }
+  }
+
+  /**
+   * Check if test results are available
+   */
+  async hasTestResults(): Promise<boolean> {
+    try {
+      // Check for both test results and coverage data
+      const [testResponse, coverageResponse] = await Promise.all([
+        fetch('/coverage/test-results.json'),
+        fetch('/coverage/coverage-summary.json')
+      ]);
+      
+      // At least one file should exist for results to be available
+      return testResponse.ok || coverageResponse.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Get coverage data for Test Results Modal
+   */
+  async getCoverageData(): Promise<any> {
+    try {
+      const response = await fetch('/coverage/coverage-summary.json');
+      if (!response.ok) {
+        throw new Error('Coverage data not available');
+      }
+      return await response.json();
+    } catch (error) {
+      throw new Error(`Failed to load coverage data: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Get test results for Test Results Modal
+   */
+  async getTestResults(): Promise<any> {
+    try {
+      const response = await fetch('/coverage/test-results.json');
+      if (!response.ok) {
+        throw new Error('Test results not available');
+      }
+      return await response.json();
+    } catch (error) {
+      throw new Error(`Failed to load test results: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 

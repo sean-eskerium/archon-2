@@ -5,7 +5,7 @@ sidebar_position: 10
 
 # Vitest Testing Strategy for React & TypeScript
 
-This document outlines Archon's comprehensive frontend testing strategy using Vitest with React and TypeScript, incorporating the latest best practices for 2024.
+This document outlines Archon's comprehensive frontend testing strategy using Vitest with React and TypeScript, incorporating the latest best practices and our current implementation.
 
 ## 🎯 Testing Philosophy
 
@@ -16,39 +16,48 @@ Our frontend testing follows these core principles:
 3. **TypeScript Safety**: Leverage TypeScript for type-safe tests
 4. **Fast Feedback**: Vitest's speed enables rapid test-driven development
 5. **Meaningful Coverage**: Focus on critical user paths over coverage numbers
+6. **WebSocket Safety**: Never create real WebSocket connections in tests
 
-## 📁 Project Structure
+## 📁 Current Project Structure
 
 ```
 archon-ui-main/
-├── vite.config.ts          # Vite & Vitest configuration
-├── vitest.setup.ts         # Global test setup
-├── tsconfig.json           # TypeScript configuration
-├── src/
-│   ├── components/         # React components
-│   ├── pages/             # Page components
-│   ├── hooks/             # Custom React hooks
-│   ├── services/          # API services
-│   ├── utils/             # Utility functions
-│   └── types/             # TypeScript types
+├── vitest.config.ts          # Vitest configuration with coverage
+├── vite.config.ts            # Dev server with test endpoints
 ├── test/
-│   ├── setup.ts           # Test environment setup
-│   ├── fixtures/          # Test data and mocks
-│   ├── utils/             # Test utilities
-│   └── mocks/             # Service mocks
-└── __tests__/             # Component-adjacent tests
-    ├── components/
-    ├── pages/
-    ├── hooks/
-    └── services/
+│   ├── setup.ts              # Enhanced test setup with comprehensive mocks
+│   ├── README_TEST_GUIDE.md  # Comprehensive testing guide
+│   ├── TEST_STRUCTURE.md     # File structure documentation
+│   ├── components/           # Component tests (68 files planned)
+│   │   ├── ui/               # UI component tests (8 files)
+│   │   ├── layouts/          # Layout component tests (3 files)
+│   │   ├── mcp/              # MCP component tests (3 files)
+│   │   ├── settings/         # Settings component tests (5 files)
+│   │   ├── project-tasks/    # Project task component tests (10 files)
+│   │   ├── knowledge-base/   # Knowledge component tests (1 file)
+│   │   └── animations/       # Animation component tests (1 file)
+│   ├── services/             # Service layer tests (12 files)
+│   ├── pages/                # Page component tests (5 files)
+│   ├── hooks/                # Custom hook tests (2 files)
+│   ├── contexts/             # Context provider tests (3 files)
+│   ├── lib/                  # Utility function tests (2 files)
+│   ├── integration/          # Integration tests (8 files)
+│   ├── e2e/                  # End-to-end tests (5 files)
+│   ├── performance/          # Performance tests (3 files)
+│   ├── fixtures/             # Test data and mocks
+│   └── utils/                # Test utilities
+└── coverage/                 # Generated coverage reports
+    ├── index.html            # HTML coverage report
+    ├── coverage-summary.json # Coverage summary for UI
+    └── test-results.json     # Test execution results
 ```
 
 ## 🔧 Configuration
 
-### vite.config.ts
+### vitest.config.ts
 
 ```typescript
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
@@ -64,27 +73,43 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './test/setup.ts',
-    css: {
-      modules: {
-        classNameStrategy: 'non-scoped',
-      },
+    include: ['test/**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}'],
+    exclude: ['node_modules', 'dist', '.git', '.cache'],
+    reporters: ['default', 'json'],
+    outputFile: { 
+      json: './coverage/test-results.json' 
     },
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: [
-        'node_modules/',
-        'test/',
-        '**/*.d.ts',
-        '**/*.config.*',
-        '**/mockServiceWorker.js',
+      reporter: [
+        'text-summary', 
+        'html', 
+        'json', 
+        'json-summary',
+        'lcov'
       ],
+      reportsDirectory: './coverage',
       thresholds: {
-        branches: 80,
-        functions: 80,
-        lines: 80,
-        statements: 80,
+        global: {
+          statements: 70,
+          branches: 65,
+          functions: 70,
+          lines: 70,
+        },
+        'src/services/**/*.ts': {
+          statements: 80,
+          branches: 75,
+          functions: 80,
+          lines: 80,
+        }
       },
+      exclude: [
+        'src/**/*.d.ts',
+        'src/env.d.ts',
+        'src/types/**',
+        'test/**/*',
+        'node_modules/**',
+      ],
     },
     // Improve test performance
     pool: 'forks',
@@ -97,30 +122,130 @@ export default defineConfig({
 })
 ```
 
-### test/setup.ts
+### Enhanced Test Setup (test/setup.ts)
 
 ```typescript
 import '@testing-library/jest-dom'
 import { cleanup } from '@testing-library/react'
 import { afterEach, beforeAll, afterAll, vi } from 'vitest'
-import { server } from './mocks/server'
-
-// Establish API mocking before all tests
-beforeAll(() => {
-  server.listen({ onUnhandledRequest: 'error' })
-})
+import React from 'react'
 
 // Clean up after each test
 afterEach(() => {
   cleanup()
-  server.resetHandlers()
   vi.clearAllMocks()
 })
 
-// Clean up after all tests
-afterAll(() => {
-  server.close()
-})
+// Comprehensive Lucide React icon mocks (170+ icons)
+vi.mock('lucide-react', () => ({
+  // Core UI icons
+  Settings: ({ className, ...props }: any) => 
+    React.createElement('span', { 
+      className, 
+      'data-testid': 'settings-icon',
+      'data-lucide': 'Settings',
+      ...props 
+    }, 'Settings'),
+  
+  User: ({ className, ...props }: any) => 
+    React.createElement('span', { 
+      className, 
+      'data-testid': 'user-icon',
+      'data-lucide': 'User',
+      ...props 
+    }, 'User'),
+  
+  Bot: ({ className, ...props }: any) => 
+    React.createElement('span', { 
+      className, 
+      'data-testid': 'bot-icon',
+      'data-lucide': 'Bot',
+      ...props 
+    }, 'Bot'),
+  
+  // Action icons
+  Play: ({ className, ...props }: any) => 
+    React.createElement('span', { 
+      className, 
+      'data-testid': 'play-icon',
+      'data-lucide': 'Play',
+      ...props 
+    }, 'Play'),
+  
+  Pause: ({ className, ...props }: any) => 
+    React.createElement('span', { 
+      className, 
+      'data-testid': 'pause-icon',
+      'data-lucide': 'Pause',
+      ...props 
+    }, 'Pause'),
+  
+  // Navigation icons
+  ChevronRight: ({ className, ...props }: any) => 
+    React.createElement('span', { 
+      className, 
+      'data-testid': 'chevron-right-icon',
+      'data-lucide': 'ChevronRight',
+      ...props 
+    }, 'ChevronRight'),
+  
+  // ... and 164+ more icon mocks for complete coverage
+}))
+
+// Enhanced WebSocket mocking with lifecycle simulation
+export class MockWebSocket {
+  static CONNECTING = 0
+  static OPEN = 1
+  static CLOSING = 2
+  static CLOSED = 3
+
+  url: string
+  readyState: number = MockWebSocket.CONNECTING
+  onopen: ((event: Event) => void) | null = null
+  onclose: ((event: CloseEvent) => void) | null = null
+  onmessage: ((event: MessageEvent) => void) | null = null
+  onerror: ((event: Event) => void) | null = null
+
+  constructor(url: string) {
+    this.url = url
+    // Simulate connection opening asynchronously
+    setTimeout(() => {
+      this.readyState = MockWebSocket.OPEN
+      if (this.onopen) {
+        this.onopen(new Event('open'))
+      }
+    }, 0)
+  }
+
+  send = vi.fn()
+  close = vi.fn(() => {
+    this.readyState = MockWebSocket.CLOSED
+    if (this.onclose) {
+      this.onclose(new CloseEvent('close'))
+    }
+  })
+
+  addEventListener = vi.fn()
+  removeEventListener = vi.fn()
+  dispatchEvent = vi.fn()
+}
+
+// Replace global WebSocket with mock
+global.WebSocket = MockWebSocket as any
+
+// Enhanced WebSocket service mock
+vi.mock('@/services/websocketService', () => ({
+  websocketService: {
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn(),
+    subscribe: vi.fn().mockReturnValue(vi.fn()),
+    send: vi.fn(),
+    getConnectionState: vi.fn().mockReturnValue('connected'),
+    waitForConnection: vi.fn().mockResolvedValue(undefined),
+    isConnected: vi.fn().mockReturnValue(true),
+    reconnect: vi.fn().mockResolvedValue(undefined)
+  }
+}))
 
 // Mock window.matchMedia
 Object.defineProperty(window, 'matchMedia', {
@@ -143,6 +268,16 @@ global.IntersectionObserver = vi.fn().mockImplementation(() => ({
   unobserve: vi.fn(),
   disconnect: vi.fn(),
 }))
+
+// Mock ResizeObserver
+global.ResizeObserver = vi.fn().mockImplementation(() => ({
+  observe: vi.fn(),
+  unobserve: vi.fn(),
+  disconnect: vi.fn(),
+}))
+
+// Mock scrollIntoView
+Element.prototype.scrollIntoView = vi.fn()
 ```
 
 ## 🧪 Testing Patterns
@@ -150,263 +285,185 @@ global.IntersectionObserver = vi.fn().mockImplementation(() => ({
 ### 1. Component Testing
 
 ```typescript
-// __tests__/components/KnowledgeSearch.test.tsx
-import { describe, it, expect, vi } from 'vitest'
+// test/components/settings/TestStatus.test.tsx
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { KnowledgeSearch } from '@/components/KnowledgeSearch'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { TestStatus } from '@/components/settings/TestStatus'
+import { testService } from '@/services/testService'
 
-describe('KnowledgeSearch', () => {
-  const createWrapper = () => {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-      },
-    })
-    
-    return ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>
-        {children}
-      </QueryClientProvider>
-    )
-  }
+// Mock the test service
+vi.mock('@/services/testService')
 
-  it('should render search input and handle user search', async () => {
-    // Arrange
-    const user = userEvent.setup()
-    const onSearch = vi.fn()
-    
-    render(
-      <KnowledgeSearch onSearch={onSearch} placeholder="Search knowledge base..." />,
-      { wrapper: createWrapper() }
-    )
-    
-    // Act
-    const searchInput = screen.getByPlaceholderText('Search knowledge base...')
-    await user.type(searchInput, 'authentication')
-    await user.keyboard('{Enter}')
-    
-    // Assert
-    expect(onSearch).toHaveBeenCalledWith('authentication')
-    expect(searchInput).toHaveValue('authentication')
-  })
-
-  it('should display search results when data is returned', async () => {
-    // Arrange
-    const mockResults = [
-      { id: '1', title: 'Auth Guide', content: 'Authentication setup...' },
-      { id: '2', title: 'JWT Tokens', content: 'Using JWT for auth...' },
-    ]
-    
-    render(
-      <KnowledgeSearch initialResults={mockResults} />,
-      { wrapper: createWrapper() }
-    )
-    
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText('Auth Guide')).toBeInTheDocument()
-      expect(screen.getByText('JWT Tokens')).toBeInTheDocument()
-    })
-  })
-
-  it('should handle search errors gracefully', async () => {
-    // Arrange
-    const user = userEvent.setup()
-    const onError = vi.fn()
-    
-    // Mock API to return error
-    server.use(
-      rest.post('/api/search', (req, res, ctx) => {
-        return res(ctx.status(500), ctx.json({ error: 'Search failed' }))
-      })
-    )
-    
-    render(
-      <KnowledgeSearch onError={onError} />,
-      { wrapper: createWrapper() }
-    )
-    
-    // Act
-    const searchInput = screen.getByRole('searchbox')
-    await user.type(searchInput, 'test query')
-    await user.keyboard('{Enter}')
-    
-    // Assert
-    await waitFor(() => {
-      expect(screen.getByText(/search failed/i)).toBeInTheDocument()
-      expect(onError).toHaveBeenCalledWith(expect.any(Error))
-    })
-  })
-})
-```
-
-### 2. Hook Testing
-
-```typescript
-// __tests__/hooks/useWebSocket.test.ts
-import { renderHook, act, waitFor } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { useWebSocket } from '@/hooks/useWebSocket'
-import WS from 'vitest-websocket-mock'
-
-describe('useWebSocket', () => {
-  let server: WS
-  
-  beforeEach(async () => {
-    server = new WS('ws://localhost:8080/ws')
-  })
-  
-  afterEach(() => {
-    WS.clean()
-  })
-
-  it('should connect to WebSocket and handle messages', async () => {
-    // Arrange
-    const onMessage = vi.fn()
-    const { result } = renderHook(() => 
-      useWebSocket('ws://localhost:8080/ws', { onMessage })
-    )
-    
-    // Wait for connection
-    await server.connected
-    
-    // Act - Send message from server
-    act(() => {
-      server.send(JSON.stringify({ type: 'update', data: 'test data' }))
-    })
-    
-    // Assert
-    await waitFor(() => {
-      expect(result.current.readyState).toBe(WebSocket.OPEN)
-      expect(onMessage).toHaveBeenCalledWith({
-        type: 'update',
-        data: 'test data',
-      })
-    })
-  })
-
-  it('should handle reconnection on disconnect', async () => {
-    // Arrange
-    const { result } = renderHook(() => 
-      useWebSocket('ws://localhost:8080/ws', { 
-        reconnectInterval: 100,
-        maxReconnectAttempts: 3,
-      })
-    )
-    
-    await server.connected
-    
-    // Act - Simulate disconnect
-    act(() => {
-      server.close()
-    })
-    
-    // Assert - Should attempt reconnection
-    await waitFor(() => {
-      expect(result.current.readyState).toBe(WebSocket.CLOSED)
-    })
-    
-    // Create new server for reconnection
-    server = new WS('ws://localhost:8080/ws')
-    
-    await waitFor(() => {
-      expect(result.current.readyState).toBe(WebSocket.OPEN)
-    }, { timeout: 500 })
-  })
-})
-```
-
-### 3. Service/API Testing
-
-```typescript
-// __tests__/services/api.test.ts
-import { describe, it, expect, beforeEach } from 'vitest'
-import { apiClient, KnowledgeService } from '@/services/api'
-import { server } from '@test/mocks/server'
-import { rest } from 'msw'
-
-describe('KnowledgeService', () => {
+describe('TestStatus', () => {
   beforeEach(() => {
-    // Reset any runtime handlers
-    server.resetHandlers()
+    vi.clearAllMocks()
   })
 
-  describe('searchKnowledge', () => {
-    it('should search knowledge base with query', async () => {
-      // Arrange
-      const mockResponse = {
-        results: [
-          { id: '1', content: 'Test result 1', score: 0.95 },
-          { id: '2', content: 'Test result 2', score: 0.87 },
-        ],
-        total: 2,
-      }
-      
-      server.use(
-        rest.post('/api/rag/query', async (req, res, ctx) => {
-          const body = await req.json()
-          expect(body).toEqual({ query: 'test query', limit: 10 })
-          return res(ctx.json(mockResponse))
-        })
-      )
-      
-      // Act
-      const results = await KnowledgeService.searchKnowledge('test query', 10)
-      
-      // Assert
-      expect(results).toEqual(mockResponse)
-    })
-
-    it('should handle API errors properly', async () => {
-      // Arrange
-      server.use(
-        rest.post('/api/rag/query', (req, res, ctx) => {
-          return res(
-            ctx.status(500),
-            ctx.json({ error: 'Internal server error' })
-          )
-        })
-      )
-      
-      // Act & Assert
-      await expect(
-        KnowledgeService.searchKnowledge('test')
-      ).rejects.toThrow('Search failed: Internal server error')
+  it('should show Test Results button after successful test run', async () => {
+    // Arrange
+    const mockCoverageData = {
+      total: { statements: { pct: 85 }, branches: { pct: 80 } }
+    }
+    const mockTestResults = {
+      numTotalTests: 10,
+      numPassedTests: 8,
+      numFailedTests: 2
+    }
+    
+    vi.mocked(testService.hasTestResults).mockReturnValue(true)
+    vi.mocked(testService.getCoverageData).mockResolvedValue(mockCoverageData)
+    vi.mocked(testService.getTestResults).mockResolvedValue(mockTestResults)
+    
+    // Act
+    render(<TestStatus />)
+    
+    // Assert
+    await waitFor(() => {
+      expect(screen.getByText('Test Results')).toBeInTheDocument()
     })
   })
 
-  describe('uploadDocument', () => {
-    it('should upload document with progress tracking', async () => {
-      // Arrange
-      const file = new File(['test content'], 'test.pdf', { 
-        type: 'application/pdf' 
-      })
-      const onProgress = vi.fn()
-      
-      server.use(
-        rest.post('/api/documents/upload', (req, res, ctx) => {
-          return res(
-            ctx.json({
-              document_id: 'doc-123',
-              filename: 'test.pdf',
-              chunks: 5,
-            })
-          )
-        })
-      )
-      
-      // Act
-      const result = await KnowledgeService.uploadDocument(file, {
-        onProgress,
-        metadata: { type: 'technical' },
-      })
-      
-      // Assert
-      expect(result.document_id).toBe('doc-123')
-      expect(onProgress).toHaveBeenCalled()
+  it('should hide Test Results button when no test results exist', () => {
+    // Arrange
+    vi.mocked(testService.hasTestResults).mockReturnValue(false)
+    
+    // Act
+    render(<TestStatus />)
+    
+    // Assert
+    expect(screen.queryByText('Test Results')).not.toBeInTheDocument()
+  })
+
+  it('should open Test Results Modal when button is clicked', async () => {
+    // Arrange
+    const user = userEvent.setup()
+    vi.mocked(testService.hasTestResults).mockReturnValue(true)
+    
+    render(<TestStatus />)
+    
+    // Act
+    const button = screen.getByText('Test Results')
+    await user.click(button)
+    
+    // Assert
+    await waitFor(() => {
+      expect(screen.getByText('Test Health Score')).toBeInTheDocument()
     })
+  })
+})
+```
+
+### 2. Service Testing with WebSocket Safety
+
+```typescript
+// test/services/websocketService.test.ts
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { websocketService } from '@/services/websocketService'
+
+// CRITICAL: Always mock WebSocket service
+vi.mock('@/services/websocketService', () => ({
+  websocketService: {
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    subscribe: vi.fn(),
+    send: vi.fn(),
+    getConnectionState: vi.fn()
+  }
+}))
+
+describe('WebSocket Service (Mocked)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  afterEach(() => {
+    // Critical: Clean up any subscriptions
+    vi.restoreAllMocks()
+  })
+
+  it('should handle connection lifecycle', async () => {
+    // Arrange
+    const mockCallback = vi.fn()
+    vi.mocked(websocketService.connect).mockResolvedValue(undefined)
+    vi.mocked(websocketService.subscribe).mockReturnValue(vi.fn())
+    
+    // Act
+    await websocketService.connect('/test-endpoint')
+    const unsubscribe = websocketService.subscribe('test-channel', mockCallback)
+    
+    // Assert
+    expect(websocketService.connect).toHaveBeenCalledWith('/test-endpoint')
+    expect(websocketService.subscribe).toHaveBeenCalledWith('test-channel', mockCallback)
+    expect(typeof unsubscribe).toBe('function')
+  })
+
+  it('should handle message subscription', () => {
+    // Arrange
+    const mockHandler = vi.fn()
+    const mockUnsubscribe = vi.fn()
+    vi.mocked(websocketService.subscribe).mockReturnValue(mockUnsubscribe)
+    
+    // Act
+    const unsubscribe = websocketService.subscribe('progress', mockHandler)
+    
+    // Assert
+    expect(websocketService.subscribe).toHaveBeenCalledWith('progress', mockHandler)
+    expect(unsubscribe).toBe(mockUnsubscribe)
+  })
+})
+```
+
+### 3. Hook Testing
+
+```typescript
+// test/hooks/useNeonGlow.test.ts
+import { renderHook, act } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { useNeonGlow } from '@/hooks/useNeonGlow'
+
+describe('useNeonGlow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('should initialize with default glow state', () => {
+    // Act
+    const { result } = renderHook(() => useNeonGlow())
+    
+    // Assert
+    expect(result.current.isGlowing).toBe(false)
+    expect(typeof result.current.startGlow).toBe('function')
+    expect(typeof result.current.stopGlow).toBe('function')
+  })
+
+  it('should handle glow activation', () => {
+    // Arrange
+    const { result } = renderHook(() => useNeonGlow())
+    
+    // Act
+    act(() => {
+      result.current.startGlow()
+    })
+    
+    // Assert
+    expect(result.current.isGlowing).toBe(true)
+  })
+
+  it('should handle glow deactivation', () => {
+    // Arrange
+    const { result } = renderHook(() => useNeonGlow())
+    
+    // Act
+    act(() => {
+      result.current.startGlow()
+    })
+    act(() => {
+      result.current.stopGlow()
+    })
+    
+    // Assert
+    expect(result.current.isGlowing).toBe(false)
   })
 })
 ```
@@ -414,253 +471,319 @@ describe('KnowledgeService', () => {
 ### 4. Integration Testing
 
 ```typescript
-// __tests__/pages/KnowledgeBasePage.test.tsx
-import { describe, it, expect } from 'vitest'
+// test/integration/test-results-flow.test.tsx
+import { describe, it, expect, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { KnowledgeBasePage } from '@/pages/KnowledgeBasePage'
-import { BrowserRouter } from 'react-router-dom'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { SettingsPage } from '@/pages/SettingsPage'
+import { testService } from '@/services/testService'
 
-describe('KnowledgeBasePage Integration', () => {
-  const renderPage = () => {
-    const queryClient = new QueryClient({
-      defaultOptions: {
-        queries: { retry: false },
-        mutations: { retry: false },
-      },
-    })
-    
-    return render(
-      <BrowserRouter>
-        <QueryClientProvider client={queryClient}>
-          <KnowledgeBasePage />
-        </QueryClientProvider>
-      </BrowserRouter>
-    )
-  }
+vi.mock('@/services/testService')
 
-  it('should display uploaded documents and allow searching', async () => {
-    // Arrange
-    const user = userEvent.setup()
-    renderPage()
-    
-    // Wait for initial load
-    await waitFor(() => {
-      expect(screen.getByText(/knowledge base/i)).toBeInTheDocument()
-    })
-    
-    // Act - Upload a document
-    const fileInput = screen.getByLabelText(/upload document/i)
-    const file = new File(['test content'], 'test-doc.pdf', { 
-      type: 'application/pdf' 
-    })
-    
-    await user.upload(fileInput, file)
-    
-    // Assert - Document appears in list
-    await waitFor(() => {
-      expect(screen.getByText('test-doc.pdf')).toBeInTheDocument()
-    })
-    
-    // Act - Search for content
-    const searchInput = screen.getByPlaceholderText(/search knowledge/i)
-    await user.type(searchInput, 'test content')
-    await user.keyboard('{Enter}')
-    
-    // Assert - Search results appear
-    await waitFor(() => {
-      expect(screen.getByText(/1 result found/i)).toBeInTheDocument()
-    })
+describe('Test Results Integration Flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  it('should handle concurrent operations gracefully', async () => {
+  it('should show complete test results workflow', async () => {
     // Arrange
     const user = userEvent.setup()
-    renderPage()
+    const mockCoverageData = {
+      total: { 
+        statements: { pct: 85 }, 
+        branches: { pct: 80 },
+        functions: { pct: 90 },
+        lines: { pct: 85 }
+      }
+    }
+    const mockTestResults = {
+      numTotalTests: 20,
+      numPassedTests: 18,
+      numFailedTests: 2,
+      testResults: [
+        { 
+          name: 'Component Tests', 
+          status: 'passed',
+          numPassedTests: 15,
+          numFailedTests: 0
+        },
+        { 
+          name: 'Service Tests', 
+          status: 'failed',
+          numPassedTests: 3,
+          numFailedTests: 2
+        }
+      ]
+    }
     
-    // Act - Trigger multiple operations
-    const operations = Promise.all([
-      user.click(screen.getByText(/refresh/i)),
-      user.click(screen.getByText(/crawl website/i)),
-      user.type(screen.getByRole('searchbox'), 'concurrent test'),
-    ])
+    vi.mocked(testService.hasTestResults).mockReturnValue(true)
+    vi.mocked(testService.getCoverageData).mockResolvedValue(mockCoverageData)
+    vi.mocked(testService.getTestResults).mockResolvedValue(mockTestResults)
     
-    // Assert - All operations complete without errors
-    await expect(operations).resolves.not.toThrow()
+    // Act
+    render(<SettingsPage />)
     
-    // UI should remain responsive
-    expect(screen.getByText(/knowledge base/i)).toBeInTheDocument()
+    // Navigate to test results
+    const testResultsButton = await screen.findByText('Test Results')
+    await user.click(testResultsButton)
+    
+    // Assert modal appears with comprehensive data
+    await waitFor(() => {
+      expect(screen.getByText('Test Health Score')).toBeInTheDocument()
+      expect(screen.getByText('90%')).toBeInTheDocument() // Health score
+      expect(screen.getByText('18 Passed')).toBeInTheDocument()
+      expect(screen.getByText('2 Failed')).toBeInTheDocument()
+      expect(screen.getByText('Statements: 85%')).toBeInTheDocument()
+      expect(screen.getByText('Component Tests')).toBeInTheDocument()
+      expect(screen.getByText('Service Tests')).toBeInTheDocument()
+    })
   })
 })
 ```
 
-## 🎭 Mocking Strategies
+## 🎯 UI Test Runner Integration
 
-### MSW for API Mocking
+Archon includes a sophisticated UI test runner accessible from the Settings page:
 
-```typescript
-// test/mocks/handlers.ts
-import { rest } from 'msw'
-
-export const handlers = [
-  // Knowledge API handlers
-  rest.post('/api/rag/query', async (req, res, ctx) => {
-    const { query } = await req.json()
-    
-    return res(
-      ctx.json({
-        results: [
-          {
-            id: '1',
-            content: `Result for query: ${query}`,
-            score: 0.95,
-            metadata: { source: 'test' },
-          },
-        ],
-        total: 1,
-      })
-    )
-  }),
-  
-  // WebSocket handlers
-  rest.get('/api/ws', (req, res, ctx) => {
-    return res(
-      ctx.status(101),
-      ctx.set('Upgrade', 'websocket'),
-      ctx.set('Connection', 'Upgrade'),
-    )
-  }),
-  
-  // File upload handler
-  rest.post('/api/documents/upload', async (req, res, ctx) => {
-    const data = await req.formData()
-    const file = data.get('file') as File
-    
-    return res(
-      ctx.json({
-        document_id: 'doc-' + Date.now(),
-        filename: file.name,
-        size: file.size,
-        chunks: Math.ceil(file.size / 1000),
-      })
-    )
-  }),
-]
-
-// test/mocks/server.ts
-import { setupServer } from 'msw/node'
-import { handlers } from './handlers'
-
-export const server = setupServer(...handlers)
-```
-
-### Component Mock Utilities
+### Test Results Modal Features
 
 ```typescript
-// test/utils/mock-components.tsx
-import { ReactNode } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { BrowserRouter } from 'react-router-dom'
-import { ThemeProvider } from '@/contexts/ThemeContext'
+// Example of testing the Test Results Modal
+describe('TestResultsModal', () => {
+  it('should display comprehensive test health information', async () => {
+    const mockData = {
+      testHealthScore: 90,
+      testSummary: {
+        totalTests: 20,
+        passedTests: 18,
+        failedTests: 2,
+        duration: 15.5
+      },
+      coverage: {
+        statements: 85,
+        branches: 80,
+        functions: 90,
+        lines: 85
+      },
+      testSuites: [
+        { name: 'Components', status: 'passed', passed: 15, failed: 0 },
+        { name: 'Services', status: 'failed', passed: 3, failed: 2 }
+      ]
+    }
 
-interface WrapperProps {
-  children: ReactNode
-}
+    render(<TestResultsModal isOpen={true} data={mockData} onClose={vi.fn()} />)
 
-export const createWrapper = (options = {}) => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
-    },
+    expect(screen.getByText('Test Health Score: 90%')).toBeInTheDocument()
+    expect(screen.getByText('18 Passed, 2 Failed')).toBeInTheDocument()
+    expect(screen.getByText('Duration: 15.5s')).toBeInTheDocument()
+    
+    // Coverage progress bars
+    expect(screen.getByText('Statements: 85%')).toBeInTheDocument()
+    expect(screen.getByText('Branches: 80%')).toBeInTheDocument()
+    
+    // Individual test suites
+    expect(screen.getByText('Components')).toBeInTheDocument()
+    expect(screen.getByText('Services')).toBeInTheDocument()
   })
-  
-  return ({ children }: WrapperProps) => (
-    <BrowserRouter>
-      <QueryClientProvider client={queryClient}>
-        <ThemeProvider>
-          {children}
-        </ThemeProvider>
-      </QueryClientProvider>
-    </BrowserRouter>
-  )
-}
-
-// Custom render function
-import { render as rtlRender } from '@testing-library/react'
-
-export const render = (ui: ReactElement, options = {}) => {
-  return rtlRender(ui, {
-    wrapper: createWrapper(),
-    ...options,
-  })
-}
+})
 ```
 
-## 🚀 Testing Commands
+## 🚀 Quick Start
 
 ### Running Tests
 
 ```bash
+# Navigate to frontend directory
+cd archon-ui-main
+
 # Run all tests
 npm test
 
-# Run tests in watch mode
-npm run test:watch
-
-# Run tests with UI
-npm run test:ui
-
-# Run tests with coverage
+# Run tests with coverage and results generation
 npm run test:coverage
 
+# Run tests in watch mode
+npm test -- --watch
+
+# Run tests with UI interface
+npm run test:ui
+
 # Run specific test file
-npm test KnowledgeSearch
+npm test -- TestStatus.test.tsx
 
 # Run tests matching pattern
 npm test -- --grep "should handle"
 
-# Run tests in specific directory
-npm test components/
+# Run tests for specific directory
+npm test -- test/components/settings/
 ```
 
-### Debugging Tests
+### Test Development Workflow
 
 ```bash
-# Run tests in debug mode
-npm run test:debug
+# 1. Create test file alongside component
+touch test/components/ui/NewComponent.test.tsx
 
-# Run single test file in debug mode
-npm test -- --inspect-brk --single-run components/KnowledgeSearch.test.tsx
+# 2. Run test in watch mode during development
+npm test -- --watch NewComponent.test.tsx
 
-# Show DOM output for debugging
-DEBUG_PRINT_LIMIT=0 npm test
+# 3. Check coverage for the specific component
+npm run test:coverage -- --reporter=text NewComponent.test.tsx
+
+# 4. Run all tests before committing
+npm run test:coverage
 ```
 
-## 📊 Code Coverage
+## 📊 Coverage Analysis
 
-### Coverage Configuration
+### Current Coverage Goals
 
-```json
-// package.json scripts
-{
-  "scripts": {
-    "test": "vitest",
-    "test:ui": "vitest --ui",
-    "test:coverage": "vitest run --coverage",
-    "test:watch": "vitest watch",
-    "test:debug": "vitest --inspect-brk --single-run"
+```typescript
+// vitest.config.ts coverage thresholds
+coverage: {
+  thresholds: {
+    global: {
+      statements: 70,
+      branches: 65,
+      functions: 70,
+      lines: 70,
+    },
+    'src/services/**/*.ts': {
+      statements: 80,
+      branches: 75,
+      functions: 80,
+      lines: 80,
+    }
   }
 }
 ```
 
-### Coverage Requirements
+### Coverage Reports Generated
 
-- **Overall Coverage**: Minimum 80%
-- **Critical Components**: 90%+ (auth, data display, forms)
-- **New Components**: 85%+ coverage required for PRs
-- **Utilities**: 95%+ coverage
+1. **HTML Report**: `coverage/index.html` - Interactive coverage browser
+2. **JSON Summary**: `coverage/coverage-summary.json` - For UI integration
+3. **LCOV**: `coverage/lcov.info` - For CI/CD integration
+4. **Text Summary**: Console output during test runs
+
+### Using Coverage Data in UI
+
+```typescript
+// Example of how Test Results Modal consumes coverage data
+const TestResultsModal = () => {
+  const [coverageData, setCoverageData] = useState(null)
+  
+  useEffect(() => {
+    const loadCoverageData = async () => {
+      try {
+        const data = await testService.getCoverageData()
+        setCoverageData(data)
+      } catch (error) {
+        console.error('Failed to load coverage data:', error)
+      }
+    }
+    
+    loadCoverageData()
+  }, [])
+
+  const calculateHealthScore = (testResults, coverage) => {
+    const testSuccessRate = (testResults.numPassedTests / testResults.numTotalTests) * 100
+    const avgCoverage = (coverage.statements + coverage.branches + coverage.functions + coverage.lines) / 4
+    return Math.round((testSuccessRate + avgCoverage) / 2)
+  }
+  
+  // ... render logic
+}
+```
+
+## 🛠️ WebSocket Testing Best Practices
+
+### ⚠️ Critical Safety Rules
+
+1. **NEVER create real WebSocket connections in tests**
+2. **ALWAYS mock the websocketService module**
+3. **NEVER include WebSocket functions in useCallback dependencies**
+4. **ALWAYS clean up subscriptions in afterEach**
+
+### Safe WebSocket Testing Pattern
+
+```typescript
+// ✅ CORRECT: Always mock the service
+vi.mock('@/services/websocketService', () => ({
+  websocketService: {
+    connect: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn(),
+    subscribe: vi.fn().mockReturnValue(vi.fn()),
+    send: vi.fn(),
+    getConnectionState: vi.fn().mockReturnValue('connected')
+  }
+}))
+
+// ✅ CORRECT: Test WebSocket interactions safely
+it('should handle WebSocket message updates', async () => {
+  const mockCallback = vi.fn()
+  let capturedCallback: Function
+
+  vi.mocked(websocketService.subscribe).mockImplementation((channel, callback) => {
+    capturedCallback = callback
+    return vi.fn() // unsubscribe function
+  })
+
+  render(<ComponentWithWebSocket />)
+
+  // Simulate WebSocket message
+  act(() => {
+    capturedCallback!({ type: 'progress', data: { percent: 50 } })
+  })
+
+  await waitFor(() => {
+    expect(screen.getByText('Progress: 50%')).toBeInTheDocument()
+  })
+})
+
+// ❌ WRONG: Never create real WebSocket connections
+it('should connect to real WebSocket', () => {
+  const ws = new WebSocket('ws://localhost:8080') // DON'T DO THIS
+  // This will break tests and potentially affect running services
+})
+```
+
+## 🎯 Test Implementation Status
+
+### Completed Tests ✅
+
+- `test/App.test.tsx` - Basic app rendering
+- `test/services/api.test.ts` - API service functionality
+- `test/services/mcpService.test.ts` - MCP service operations
+- `test/services/knowledgeBaseService.test.ts` - Knowledge base operations
+- `test/pages/MCPPage.test.tsx` - MCP page rendering
+- `test/pages/KnowledgeBasePage.test.tsx` - Knowledge base page
+- `test/pages/CrawlingProgress.test.tsx` - Crawling progress page
+
+### High Priority (Next Phase) 📝
+
+1. **Services Layer** (Critical)
+   - `websocketService.test.ts` - WebSocket connection management
+   - `projectService.test.ts` - Project CRUD operations
+   - `testService.test.ts` - Test execution and results
+   - `credentialsService.test.ts` - Credentials management
+
+2. **Settings Components** (High)
+   - `TestStatus.test.tsx` - Test Results Modal integration
+   - `APIKeysSection.test.tsx` - API key management
+   - `FeaturesSection.test.tsx` - Feature toggles
+   - `RAGSettings.test.tsx` - RAG configuration
+
+3. **Project Components** (High)
+   - `TasksTab.test.tsx` - Task management interface
+   - `TaskTableView.test.tsx` - Task table functionality
+   - `TaskBoardView.test.tsx` - Kanban board interface
+
+### Coverage Progress
+
+- **Total Files Planned**: 68 test files
+- **Currently Implemented**: 7 files (10%)
+- **Target Coverage**: 80% overall, 90% for critical paths
+- **Current Coverage**: ~15% overall
 
 ## 🔄 CI/CD Integration
 
@@ -687,107 +810,103 @@ jobs:
       with:
         node-version: '20'
         cache: 'npm'
+        cache-dependency-path: archon-ui-main/package-lock.json
     
     - name: Install dependencies
+      working-directory: ./archon-ui-main
       run: npm ci
     
     - name: Type check
+      working-directory: ./archon-ui-main
       run: npm run type-check
     
     - name: Run tests with coverage
+      working-directory: ./archon-ui-main
       run: npm run test:coverage
     
-    - name: Upload coverage
+    - name: Upload coverage reports
       uses: codecov/codecov-action@v3
       with:
-        file: ./coverage/coverage-final.json
+        file: ./archon-ui-main/coverage/coverage-final.json
         flags: frontend
         fail_ci_if_error: true
-    
-    - name: Run E2E tests
-      run: npm run test:e2e
 ```
 
-## 🎯 Testing Checklist
+## 📚 Best Practices Checklist
 
-### Component Testing
+### Before Writing Tests
+- [ ] Component/service is implemented and working
+- [ ] Identify critical user paths to test
+- [ ] Plan test scenarios (happy path, error cases, edge cases)
+- [ ] Ensure WebSocket mocking is in place if needed
 
-- [ ] Test user interactions (clicks, typing, etc.)
-- [ ] Test component states (loading, error, success)
-- [ ] Test prop variations
-- [ ] Test accessibility (ARIA labels, keyboard nav)
-- [ ] Test responsive behavior
-- [ ] Test error boundaries
-- [ ] Mock external dependencies
-- [ ] Test edge cases
+### Writing Tests
+- [ ] Use descriptive test names (`should do X when Y happens`)
+- [ ] Follow AAA pattern (Arrange, Act, Assert)
+- [ ] Test user behavior, not implementation details
+- [ ] Mock external dependencies appropriately
+- [ ] Use proper TypeScript types in tests
 
-### Hook Testing
+### After Writing Tests
+- [ ] Tests pass consistently
+- [ ] Coverage meets threshold requirements
+- [ ] No console errors or warnings
+- [ ] Tests run quickly (under 100ms per test ideally)
+- [ ] Clean up resources in afterEach hooks
 
-- [ ] Test initial state
-- [ ] Test state updates
-- [ ] Test cleanup/unmounting
-- [ ] Test error scenarios
-- [ ] Test with different parameters
-- [ ] Test timing and debouncing
+### WebSocket-Specific Checklist
+- [ ] WebSocket service is mocked, never real connections
+- [ ] Subscription cleanup is handled
+- [ ] No function references in useCallback dependencies
+- [ ] Connection state changes are tested
+- [ ] Error scenarios are covered
 
-### Integration Testing
+## 🛠️ Troubleshooting Common Issues
 
-- [ ] Test complete user flows
-- [ ] Test page transitions
-- [ ] Test data persistence
-- [ ] Test error recovery
-- [ ] Test loading states
-- [ ] Test concurrent operations
+### Test Environment Issues
 
-## 📚 Best Practices Summary
-
-1. **User-Centric Testing**: Use Testing Library queries that reflect how users interact
-2. **Async Handling**: Always use `waitFor` or `findBy` queries for async operations
-3. **Mock Strategically**: Mock at the network boundary, not component boundaries
-4. **Test Accessibility**: Include tests for keyboard navigation and screen readers
-5. **Avoid Implementation Details**: Don't test component internals or state
-6. **Use TypeScript**: Leverage type safety in tests
-7. **Keep Tests Fast**: Mock heavy operations and external dependencies
-8. **Test Real Scenarios**: Focus on actual user workflows
-9. **Maintainable Tests**: Use descriptive names and avoid brittle selectors
-10. **Regular Updates**: Keep tests synchronized with component changes
-
-## 🛠️ Troubleshooting
-
-### Common Issues
-
-**DOM Testing Issues:**
 ```typescript
-// Use data-testid for reliable element selection
-<button data-testid="submit-button">Submit</button>
+// Issue: Icons not rendering in tests
+// Solution: Comprehensive Lucide React mocking in setup.ts
 
-// In tests
-const button = screen.getByTestId('submit-button')
-```
+// Issue: WebSocket connection errors in tests
+// Solution: Always mock websocketService module
 
-**Async Testing Issues:**
-```typescript
-// Always wait for async operations
+// Issue: Async timing issues
+// Solution: Use waitFor and findBy queries
 await waitFor(() => {
-  expect(screen.getByText('Loaded')).toBeInTheDocument()
+  expect(screen.getByText('Expected text')).toBeInTheDocument()
 })
 
-// Or use findBy queries
-const element = await screen.findByText('Loaded')
+// Issue: State update warnings
+// Solution: Wrap state updates in act()
+act(() => {
+  // state updates
+})
 ```
 
-**Timer Issues:**
-```typescript
-// Use vi.useFakeTimers() for timer-based code
-vi.useFakeTimers()
-// ... perform actions ...
-vi.runAllTimers()
-vi.useRealTimers()
+### Coverage Issues
+
+```bash
+# Issue: Low coverage on specific files
+# Solution: Check what's not covered
+npm run test:coverage -- --reporter=text-summary
+
+# Issue: Coverage threshold failures
+# Solution: Either improve tests or adjust thresholds in vitest.config.ts
 ```
+
+## 🔗 Related Documentation
+
+- **[Testing Overview](./testing)** - General testing strategy and architecture
+- **[Python Testing Strategy](./testing-python-strategy)** - Backend testing guide
+- **[WebSocket Documentation](./websockets)** - Real-time communication patterns
+- **[UI Documentation](./ui)** - Component design and usage guidelines
 
 ---
 
-For more details, see:
-- [Testing Overview](./testing) - General testing documentation
-- [Python Testing Strategy](./testing-python-strategy) - Backend testing with pytest
-- [UI Documentation](./ui) - Frontend component documentation
+**Quick Navigation:**
+- 🚀 [Quick Start](#quick-start) - Get started with testing immediately
+- 🎯 [UI Test Runner Integration](#ui-test-runner-integration) - Use the Settings page test runner
+- 🛠️ [WebSocket Testing](#websocket-testing-best-practices) - Safe WebSocket testing patterns
+- 📊 [Coverage Analysis](#coverage-analysis) - Understanding and improving coverage

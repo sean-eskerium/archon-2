@@ -304,6 +304,57 @@ Wraps pages with smooth fade/slide animations:
 </PageTransition>
 ```
 
+## 🔌 WebSocket Integration
+
+All WebSocket connections in the frontend use the **EnhancedWebSocketService** for consistent behavior:
+
+### Key Services Using WebSockets
+
+| Service | Purpose | Status |
+|---------|---------|--------|
+| `crawlProgressServiceV2` | Progress tracking for crawling | ✅ Migrated |
+| `websocketService` | General WebSocket management | ✅ Migrated |
+| `taskUpdateWebSocket` | Real-time task updates | ✅ Migrated |
+| `agentChatService` | Agent chat streaming | ✅ Migrated |
+
+### WebSocket Usage Pattern
+
+```typescript
+import { createWebSocketService } from './services/EnhancedWebSocketService';
+
+// Create service
+const wsService = createWebSocketService({
+  maxReconnectAttempts: 5,
+  reconnectInterval: 1000
+});
+
+// Connect and handle messages
+await wsService.connect('/api/endpoint');
+
+wsService.addMessageHandler('message_type', (message) => {
+  // Handle message
+});
+
+// Clean up
+wsService.disconnect();
+```
+
+### Component Integration
+
+```typescript
+useEffect(() => {
+  const ws = createWebSocketService();
+  
+  ws.addMessageHandler('update', (data) => {
+    setState(data);
+  });
+  
+  ws.connect('/api/endpoint');
+  
+  return () => ws.disconnect();
+}, []); // Only stable dependencies
+```
+
 ## 🔌 Services
 
 ### mcpService
@@ -424,162 +475,54 @@ CMD ["npm", "run", "preview"]
 
 ## ✅ Frontend Development Standards
 
-### 🚨 **CRITICAL: Toast and State Management**
+### WebSocket Best Practices
 
-Based on systematic debugging of duplicate toasts and WebSocket instability across the app, follow these patterns:
+**DO:**
+- ✅ Use EnhancedWebSocketService for all WebSocket connections
+- ✅ Clean up connections in useEffect return
+- ✅ Handle all connection states (connecting, connected, failed)
+- ✅ Use typed message handlers
 
-#### **Duplicate Toast Prevention**
+**DON'T:**
+- ❌ Create direct WebSocket instances with `new WebSocket()`
+- ❌ Include unstable functions in useCallback dependencies
+- ❌ Forget to handle reconnection scenarios
+- ❌ Create multiple connections to the same endpoint
 
-**Root Cause**: Multiple event sources (WebSocket + Progress callbacks + API responses) all showing the same toast.
-
-**Solution**: Single source of truth for events.
+### Stable Dependencies Pattern
 
 ```typescript
-// ❌ PROBLEMATIC: Multiple event sources showing the same toast
-const handleProgressComplete = (data: CrawlProgressData) => {
-  console.log('Crawl completed:', data);
-  setProgressItems(prev => prev.filter(item => item.progressId !== data.progressId));
-  loadKnowledgeItems();
-  showToast('Crawling completed successfully', 'success'); // ❌ Also called by WebSocket!
-};
+// ✅ CORRECT: Only stable dependencies
+const handleUpdate = useCallback(() => {
+  updateData(value);
+  showToast('Updated', 'success'); // Can call without dependency
+}, [value]); // Only primitive values
 
-// WebSocket handler ALSO calls:
-if (data.type === 'crawl_completed') {
-  showToast('Crawling completed successfully', 'success'); // ❌ Duplicate!
-}
-
-// ✅ FIXED: Single source of truth
-const handleProgressComplete = (data: CrawlProgressData) => {
-  console.log('Crawl completed:', data);
-  setProgressItems(prev => prev.filter(item => item.progressId !== data.progressId));
-  loadKnowledgeItems();
-  // Toast will be shown by WebSocket completion event to avoid duplicates
-};
-
-// Only WebSocket handler shows the toast:
-if (data.type === 'crawl_completed') {
-  showToast('Crawling completed successfully', 'success'); // ✅ Single source!
-}
+// ❌ WRONG: Unstable function dependencies
+const handleUpdate = useCallback(() => {
+  updateData(value);
+  showToast('Updated', 'success');
+}, [value, showToast]); // showToast causes re-renders
 ```
 
-#### **useEffect Dependency Management**
+### Event Handling Pattern
 
-**THE #1 CAUSE OF DOUBLE EXECUTION**: Including state variables that change during the effect execution in dependency arrays.
-
-```typescript
-// ❌ PROBLEMATIC: backendReady changes during effect execution
-useEffect(() => {
-  const checkOpenAIKey = async () => {
-    if (hasShownApiKeyToast) return;
-    
-    // This sets backendReady to true, triggering the effect again!
-    setBackendReady(true);
-    checkCredentials();
-  };
-  
-  checkOpenAIKey();
-}, [showToast, navigate, hasShownApiKeyToast, backendReady]); // ❌ backendReady causes double run
-
-// ✅ FIXED: Remove state variables that are set inside the effect
-useEffect(() => {
-  const checkOpenAIKey = async () => {
-    if (hasShownApiKeyToast) return;
-    
-    // Use local variable instead of state dependency
-    let isBackendReady = false;
-    
-    if (response.ok) {
-      console.log('✅ Backend is ready, checking credentials...');
-      isBackendReady = true;
-      setBackendReady(true); // Still set state, just don't depend on it
-      // Continue with credential check...
-    }
-  };
-  
-  checkOpenAIKey();
-}, [showToast, navigate, hasShownApiKeyToast]); // ✅ No internal state dependencies
-```
-
-#### **Standard Patterns**
-
-**For Event Completion**: Choose ONE source of truth for showing success/completion toasts:
-- **WebSocket events**: Preferred for real-time operations (crawling, task updates)
-- **API responses**: For direct user actions (save, delete, create)
-- **Progress callbacks**: Only for progress updates, not completion toasts
-
-**For useEffect**: Only include dependencies that should trigger re-runs:
-- ✅ **Include**: External props, primitive state, ref values
-- ❌ **Exclude**: State variables modified inside the effect
-- ❌ **Exclude**: Functions that change every render (`showToast`, service functions)
-
-**For State Updates**: Use built-in React patterns:
-- `useCallback` with stable dependencies only
-- `useRef` for stable function references when needed
-- Local variables inside effects instead of state dependencies
-
-#### **Async Toggle Race Conditions**
-
-**Root Cause**: Rapid clicks or state inconsistencies during async operations (like feature toggles).
+**Single Source of Truth**: Avoid duplicate event handlers for the same action.
 
 ```typescript
-// ❌ PROBLEMATIC: No protection against rapid clicks or race conditions
-const handleLogfireToggle = async (checked: boolean) => {
-  setLogfireEnabled(checked); // Immediate state update
-  
-  await credentialsService.createCredential({
-    key: 'LOGFIRE_ENABLED',
-    value: checked.toString(),
-    // ... config
-  });
-  
-  showToast(
-    checked ? 'Logfire Enabled Successfully!' : 'Logfire Now Disabled', 
-    checked ? 'success' : 'warning'
-  );
-  // If user clicks rapidly, multiple toasts can fire with different values!
-};
-
-// ✅ SOLUTION: Use loading state to prevent race conditions
-const handleLogfireToggle = async (checked: boolean) => {
-  if (loading) return; // Prevent duplicate calls while one is in progress
-  
-  try {
-    setLoading(true);
-    setLogfireEnabled(checked);
-    
-    await credentialsService.createCredential({
-      key: 'LOGFIRE_ENABLED',
-      value: checked.toString(),
-      // ... config
-    });
-    
-    showToast(
-      checked ? 'Logfire Enabled Successfully!' : 'Logfire Now Disabled', 
-      checked ? 'success' : 'warning'
-    );
-  } catch (error) {
-    setLogfireEnabled(!checked); // Revert on error
-    showToast('Failed to update Logfire setting', 'error');
-  } finally {
-    setLoading(false);
+// ✅ CORRECT: One place handles completion
+const handleWebSocketMessage = (message) => {
+  if (message.type === 'completed') {
+    showToast('Operation completed', 'success');
+    refreshData();
   }
 };
 
-// Disable toggle during loading:
-<Toggle 
-  checked={logfireEnabled} 
-  onCheckedChange={handleLogfireToggle} 
-  disabled={loading} // ✅ Prevents interaction during async operation
-/>
+// ❌ WRONG: Multiple handlers for same event
+// In WebSocket handler:
+showToast('Operation completed', 'success');
+// In API callback:
+showToast('Operation completed', 'success');
+// Causes duplicate toasts!
 ```
-
-#### **Quick Debug Checklist**
-
-When experiencing duplicate toasts or WebSocket issues:
-
-1. **Check for multiple event sources**: Search codebase for the toast message
-2. **Review useEffect dependencies**: Look for state variables modified inside the effect
-3. **Verify single source of truth**: Ensure only one place shows each type of toast
-4. **Check async race conditions**: Look for unprotected async toggle handlers
-5. **Test systematically**: Use browser dev tools to trace event firing
 

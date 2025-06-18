@@ -50,9 +50,11 @@ const AppContent = () => {
         }
       },
       onReconnected: () => {
-        console.log('Server reconnected');
+        console.log('Server reconnected - refreshing page');
         setDisconnectScreenActive(false);
         setDisconnectScreenDismissed(false);
+        // Refresh the page to ensure all data is fresh
+        window.location.reload();
       }
     });
 

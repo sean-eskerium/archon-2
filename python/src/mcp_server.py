@@ -28,6 +28,7 @@ import logging
 import traceback
 import time
 from datetime import datetime
+import threading
 
 from crawl4ai import AsyncWebCrawler, BrowserConfig
 
@@ -61,6 +62,11 @@ try:
 except ImportError as e:
     logger.error(f"Failed to import utils: {e}")
     raise
+
+# Global initialization lock and flag
+_initialization_lock = threading.Lock()
+_initialization_complete = False
+_shared_context = None
 
 @dataclass
 class ArchonContext:
@@ -145,98 +151,121 @@ async def archon_lifespan(server: FastMCP) -> AsyncIterator[ArchonContext]:
     """
     Manages the shared resources lifecycle with proper initialization.
     Following official MCP patterns from the Python SDK documentation.
+    
+    Now with singleton pattern to prevent duplicate initialization on multiple SSE connections.
     """
-    logger.info("🚀 Starting Archon MCP server lifespan...")
+    global _initialization_complete, _shared_context
     
-    # Check OpenAI API key availability (should be set by FastAPI startup)
-    openai_key_available = bool(os.getenv("OPENAI_API_KEY"))
-    logger.info(f"🔑 OpenAI API key status: {'AVAILABLE' if openai_key_available else 'NOT FOUND'}")
+    # Quick check without lock
+    if _initialization_complete and _shared_context:
+        logger.info("♻️ Reusing existing Archon context for new SSE connection")
+        yield _shared_context
+        return
     
-    # Initialize resources needed for full operation
-    crawler = None
-    supabase_client = None
-    reranking_model = None
-    
-    try:
-        # Initialize session manager (no longer needs async start)
-        logger.info("🔐 Initializing session manager...")
-        session_manager = get_session_manager()
-        logger.info("✓ Session manager initialized")
-        # Initialize essential services
-        logger.info("🗄️ Initializing Supabase client...")
-        supabase_client = get_supabase_client()
-        logger.info("✓ Supabase client initialized")
+    # Acquire lock for initialization
+    with _initialization_lock:
+        # Double-check pattern
+        if _initialization_complete and _shared_context:
+            logger.info("♻️ Reusing existing Archon context for new SSE connection")
+            yield _shared_context
+            return
         
-        # Initialize AsyncWebCrawler if available
-        logger.info("🕷️ Initializing web crawler...")
+        logger.info("🚀 Starting Archon MCP server lifespan...")
+        
+        # Check OpenAI API key availability (should be set by FastAPI startup)
+        openai_key_available = bool(os.getenv("OPENAI_API_KEY"))
+        logger.info(f"🔑 OpenAI API key status: {'AVAILABLE' if openai_key_available else 'NOT FOUND'}")
+        
+        # Initialize resources needed for full operation
+        crawler = None
+        supabase_client = None
+        reranking_model = None
+        
         try:
-            browser_config = BrowserConfig(
-                headless=True,
-                verbose=False
-            )
-            crawler = AsyncWebCrawler(config=browser_config)
-            await crawler.__aenter__()
-            logger.info("✓ Web crawler initialized")
-        except Exception as e:
-            logger.warning(f"⚠ Failed to initialize web crawler: {e}")
-            crawler = None
-        
-        # Initialize reranking model if enabled
-        use_reranking = os.getenv("USE_RERANKING", "false").lower() == "true"
-        if use_reranking:
-            logger.info("🧠 Initializing reranking model...")
+            # Initialize session manager (no longer needs async start)
+            logger.info("🔐 Initializing session manager...")
+            session_manager = get_session_manager()
+            logger.info("✓ Session manager initialized")
+            # Initialize essential services
+            logger.info("🗄️ Initializing Supabase client...")
+            supabase_client = get_supabase_client()
+            logger.info("✓ Supabase client initialized")
+            
+            # Initialize AsyncWebCrawler if available
+            logger.info("🕷️ Initializing web crawler...")
             try:
-                reranking_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
-                logger.info("✓ Reranking model initialized")
+                browser_config = BrowserConfig(
+                    headless=True,
+                    verbose=False
+                )
+                crawler = AsyncWebCrawler(config=browser_config)
+                await crawler.__aenter__()
+                logger.info("✓ Web crawler initialized")
             except Exception as e:
-                logger.warning(f"⚠ Failed to initialize reranking model: {e}")
-                reranking_model = None
-        else:
-            logger.info("⚠ Reranking disabled - skipping model initialization")
-        
-        # Create context  
-        context = ArchonContext(
-            crawler=crawler,
-            supabase_client=supabase_client,
-            reranking_model=reranking_model
-        )
-        
-        # Set ready status based on actual initialization
-        context.health_status["database_ready"] = supabase_client is not None
-        context.health_status["crawler_ready"] = crawler is not None
-        context.health_status["reranking_ready"] = reranking_model is not None
-        context.health_status["openai_key_available"] = openai_key_available
-        context.health_status["last_health_check"] = datetime.now().isoformat()
-        
-        # Overall status: healthy if database is ready, degraded if crawler missing, unhealthy if database missing
-        if not context.health_status["database_ready"]:
-            context.health_status["status"] = "unhealthy"
-        elif not context.health_status["crawler_ready"]:
-            context.health_status["status"] = "degraded"
-        else:
-            context.health_status["status"] = "healthy"
-        
-        logger.info("✓ Archon context ready - server can accept requests")
-        yield context
-        
-    except Exception as e:
-        logger.error(f"💥 Critical error in lifespan setup: {e}")
-        logger.error(traceback.format_exc())
-        raise
-    finally:
-        # Clean up resources  
-        logger.info("🧹 Cleaning up Archon resources...")
-        try:
-            if crawler:
-                await crawler.__aexit__(None, None, None)
-                logger.info("✓ Crawler cleaned up")
+                logger.warning(f"⚠ Failed to initialize web crawler: {e}")
+                crawler = None
+            
+            # Initialize reranking model if enabled
+            use_reranking = os.getenv("USE_RERANKING", "false").lower() == "true"
+            if use_reranking:
+                logger.info("🧠 Initializing reranking model...")
+                try:
+                    reranking_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+                    logger.info("✓ Reranking model initialized")
+                except Exception as e:
+                    logger.warning(f"⚠ Failed to initialize reranking model: {e}")
+                    reranking_model = None
+            else:
+                logger.info("⚠ Reranking disabled - skipping model initialization")
+            
+            # Create context  
+            context = ArchonContext(
+                crawler=crawler,
+                supabase_client=supabase_client,
+                reranking_model=reranking_model
+            )
+            
+            # Set ready status based on actual initialization
+            context.health_status["database_ready"] = supabase_client is not None
+            context.health_status["crawler_ready"] = crawler is not None
+            context.health_status["reranking_ready"] = reranking_model is not None
+            context.health_status["openai_key_available"] = openai_key_available
+            context.health_status["last_health_check"] = datetime.now().isoformat()
+            
+            # Overall status: healthy if database is ready, degraded if crawler missing, unhealthy if database missing
+            if not context.health_status["database_ready"]:
+                context.health_status["status"] = "unhealthy"
+            elif not context.health_status["crawler_ready"]:
+                context.health_status["status"] = "degraded"
+            else:
+                context.health_status["status"] = "healthy"
+            
+            logger.info("✓ Archon context ready - server can accept requests")
+            
+            # Store context globally
+            _shared_context = context
+            _initialization_complete = True
+            
+            yield context
+            
         except Exception as e:
-            logger.error(f"✗ Error cleaning up crawler: {e}")
-        
-        # Session manager cleanup is now handled by SimplifiedSessionManager
-        logger.info("✓ Session manager cleanup complete")
-        
-        logger.info("✅ Archon MCP server lifespan ended")
+            logger.error(f"💥 Critical error in lifespan setup: {e}")
+            logger.error(traceback.format_exc())
+            raise
+        finally:
+            # Clean up resources  
+            logger.info("🧹 Cleaning up Archon resources...")
+            try:
+                if crawler:
+                    await crawler.__aexit__(None, None, None)
+                    logger.info("✓ Crawler cleaned up")
+            except Exception as e:
+                logger.error(f"✗ Error cleaning up crawler: {e}")
+            
+            # Session manager cleanup is now handled by SimplifiedSessionManager
+            logger.info("✓ Session manager cleanup complete")
+            
+            logger.info("✅ Archon MCP server lifespan ended")
 
 # Initialize the main FastMCP server with fixed configuration
 try:

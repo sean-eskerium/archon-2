@@ -53,9 +53,24 @@ class MCPServerManager:
         self.logs: deque = deque(maxlen=1000)  # Keep last 1000 log entries
         self.log_websockets: List[WebSocket] = []
         self.log_reader_task: Optional[asyncio.Task] = None
+        self._operation_lock = asyncio.Lock()  # Prevent concurrent start/stop operations
+        self._last_operation_time = 0
+        self._min_operation_interval = 2.0  # Minimum 2 seconds between operations
     
     async def start_server(self) -> Dict[str, Any]:
         """Start the MCP server process."""
+        async with self._operation_lock:
+            # Check throttling
+            current_time = time.time()
+            if current_time - self._last_operation_time < self._min_operation_interval:
+                wait_time = self._min_operation_interval - (current_time - self._last_operation_time)
+                mcp_logger.warning(f"Start operation throttled, please wait {wait_time:.1f}s")
+                return {
+                    'success': False,
+                    'status': self.status,
+                    'message': f'Please wait {wait_time:.1f}s before starting server again'
+                }
+            
         with mcp_logger.span("mcp_server_start") as span:
             span.set_attribute("action", "start_server")
             
@@ -118,6 +133,7 @@ class MCPServerManager:
                 
                 self.status = 'starting'
                 self.start_time = time.time()
+                self._last_operation_time = time.time()
                 self._add_log('INFO', 'MCP server starting...')
                 mcp_logger.info("MCP server process started", pid=self.process.pid, cmd=cmd)
                 span.set_attribute("pid", self.process.pid)
@@ -167,6 +183,18 @@ class MCPServerManager:
     
     async def stop_server(self) -> Dict[str, Any]:
         """Stop the MCP server process."""
+        async with self._operation_lock:
+            # Check throttling
+            current_time = time.time()
+            if current_time - self._last_operation_time < self._min_operation_interval:
+                wait_time = self._min_operation_interval - (current_time - self._last_operation_time)
+                mcp_logger.warning(f"Stop operation throttled, please wait {wait_time:.1f}s")
+                return {
+                    'success': False,
+                    'status': self.status,
+                    'message': f'Please wait {wait_time:.1f}s before stopping server again'
+                }
+                
         with mcp_logger.span("mcp_server_stop") as span:
             span.set_attribute("action", "stop_server")
             
@@ -210,6 +238,7 @@ class MCPServerManager:
                 self.process = None
                 self.status = 'stopped'
                 self.start_time = None
+                self._last_operation_time = time.time()
                 self._add_log('INFO', 'MCP server stopped')
                 mcp_logger.info("MCP server stopped successfully")
                 span.set_attribute("success", True)
@@ -368,12 +397,12 @@ class MCPServerManager:
         await websocket.accept()
         self.log_websockets.append(websocket)
         
-        # Send recent logs to new connection
-        for log in list(self.logs)[-50:]:  # Send last 50 logs
-            try:
-                await websocket.send_json(log)
-            except Exception:
-                break
+        # Send connection info but NOT historical logs
+        # The frontend already fetches historical logs via the /logs endpoint
+        await websocket.send_json({
+            "type": "connection",
+            "message": "WebSocket connected for log streaming"
+        })
     
     def remove_websocket(self, websocket: WebSocket):
         """Remove a WebSocket connection."""

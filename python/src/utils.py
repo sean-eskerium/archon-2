@@ -204,8 +204,7 @@ Please give a short succinct context to situate this chunk within the overall do
         contextual_text = f"{context}\n---\n{chunk}"
         
         # Add a small delay to prevent rate limiting when running in parallel
-        import time
-        time.sleep(0.3)  # 300ms delay between requests - reduced from 500ms
+        time.sleep(0.3)  # Keep as time.sleep - this is in a sync function
         
         return contextual_text, True
     
@@ -336,25 +335,28 @@ async def add_documents_to_supabase(
             estimated_tokens = (5000 + avg_chunk_size) * len(batch_contents) // 4  # Rough estimate: 1 token = 4 chars
             print(f"Estimated tokens for this batch: ~{estimated_tokens:,} tokens")
             
-            # Process in parallel using ThreadPoolExecutor
+            # Process in parallel using asyncio's run_in_executor to prevent blocking
             contextual_contents = [None] * len(batch_contents)  # Pre-allocate with None
-            with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all tasks and collect results
-                future_to_idx = {executor.submit(process_chunk_with_context, arg): idx 
-                                for idx, arg in enumerate(process_args)}
-                
-                # Process results as they complete, but store in correct order
-                for future in concurrent.futures.as_completed(future_to_idx):
-                    idx = future_to_idx[future]
-                    try:
-                        result, success = future.result()
-                        contextual_contents[idx] = result  # Store in correct position!
-                        if success:
-                            batch_metadatas[idx]["contextual_embedding"] = True
-                    except Exception as e:
-                        print(f"Error processing chunk {idx}: {e}")
-                        # Use original content as fallback
-                        contextual_contents[idx] = batch_contents[idx]
+            loop = asyncio.get_event_loop()
+            
+            # Create tasks for all chunks
+            tasks = []
+            for idx, arg in enumerate(process_args):
+                # Run the synchronous function in a thread pool to prevent blocking
+                task = loop.run_in_executor(None, process_chunk_with_context, arg)
+                tasks.append((idx, task))
+            
+            # Wait for all tasks to complete
+            for idx, task in tasks:
+                try:
+                    result, success = await task
+                    contextual_contents[idx] = result  # Store in correct position!
+                    if success:
+                        batch_metadatas[idx]["contextual_embedding"] = True
+                except Exception as e:
+                    print(f"Error processing chunk {idx}: {e}")
+                    # Use original content as fallback
+                    contextual_contents[idx] = batch_contents[idx]
             
             # Check for any None values and replace with original content
             for idx, content in enumerate(contextual_contents):
@@ -418,7 +420,7 @@ async def add_documents_to_supabase(
                 if retry < max_retries - 1:
                     print(f"Error inserting batch into Supabase (attempt {retry + 1}/{max_retries}): {e}")
                     print(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
+                    await asyncio.sleep(retry_delay)  # This function is async, so we can use await
                     retry_delay *= 2  # Exponential backoff
                 else:
                     # Final attempt failed
@@ -441,7 +443,7 @@ async def add_documents_to_supabase(
             # Reduced delay - with 5k context we use much fewer tokens
             delay = 1.5 if use_contextual_embeddings else 0.5
             print(f"Waiting {delay} seconds before processing next batch...")
-            time.sleep(delay)
+            await asyncio.sleep(delay)  # This function is async, so we can use await
     
     # Report final completion
     await report_progress(f"Successfully stored all {len(contents)} documents", 100)
@@ -692,7 +694,7 @@ Based on the code example and its surrounding context, provide a concise summary
         result = response.choices[0].message.content.strip()
         
         # Add a small delay to prevent rate limiting when running in parallel
-        time.sleep(0.3)  # 300ms delay between requests - reduced from 500ms
+        time.sleep(0.3)  # Keep as time.sleep - this is in a sync function
         
         return result
     
@@ -790,7 +792,7 @@ def add_code_examples_to_supabase(
                 if retry < max_retries - 1:
                     print(f"Error inserting batch into Supabase (attempt {retry + 1}/{max_retries}): {e}")
                     print(f"Retrying in {retry_delay} seconds...")
-                    time.sleep(retry_delay)
+                    time.sleep(retry_delay)  # Keep as time.sleep - this is in a sync function
                     retry_delay *= 2  # Exponential backoff
                 else:
                     # Final attempt failed
@@ -921,7 +923,7 @@ Respond in this exact JSON format:
             print(f"Generated title for {source_id}: {title}")
             
             # Add a small delay to prevent rate limiting when running in parallel
-            time.sleep(0.3)  # 300ms delay between requests - reduced from 500ms
+            time.sleep(0.3)  # Keep as time.sleep - this is in a sync function
             
             return title, metadata
             
@@ -1058,7 +1060,7 @@ The above content is from the documentation for '{source_id}'. Please provide a 
             summary = summary[:max_length] + "..."
         
         # Add a small delay to prevent rate limiting when running in parallel
-        time.sleep(0.3)  # 300ms delay between requests - reduced from 500ms
+        time.sleep(0.3)  # Keep as time.sleep - this is in a sync function
             
         return summary
     

@@ -1,21 +1,46 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { KnowledgeBasePage } from '@/pages/KnowledgeBasePage';
 import { knowledgeBaseService } from '@/services/knowledgeBaseService';
-import { useToast } from '@/contexts/ToastContext';
 import { performRAGQuery } from '@/services/api';
+import { useToast } from '@/contexts/ToastContext';
+import { ThemeProvider } from '@/contexts/ThemeContext';
+import { ToastProvider } from '@/contexts/ToastContext';
+import { SettingsProvider } from '@/contexts/SettingsContext';
 
-// Mock the services and contexts
+// Clear mocks that might interfere
+vi.unmock('@/contexts/ThemeContext');
+vi.unmock('@/contexts/ToastContext');
+vi.unmock('@/contexts/SettingsContext');
+
+// Mock the services
 vi.mock('@/services/knowledgeBaseService');
-vi.mock('@/contexts/ToastContext');
 vi.mock('@/services/api');
+
+// Test wrapper with all providers
+const TestWrapper = ({ children }: { children: React.ReactNode }) => (
+  <MemoryRouter>
+    <ThemeProvider>
+      <ToastProvider>
+        <SettingsProvider>
+          {children}
+        </SettingsProvider>
+      </ToastProvider>
+    </ThemeProvider>
+  </MemoryRouter>
+);
 
 describe('KnowledgeBasePage', () => {
   const mockShowToast = vi.fn();
   
   beforeEach(() => {
     vi.clearAllMocks();
-    (useToast as any).mockReturnValue({ showToast: mockShowToast });
+    vi.mocked(useToast).mockReturnValue({ 
+      showToast: mockShowToast,
+      hideToast: vi.fn(),
+      toasts: []
+    });
   });
 
   describe('Initial Load', () => {
@@ -68,7 +93,11 @@ describe('KnowledgeBasePage', () => {
 
       (knowledgeBaseService.getKnowledgeItems as any).mockResolvedValue(mockItems);
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       // Should show loading initially
       expect(screen.getByText('Knowledge Base')).toBeInTheDocument();
@@ -100,7 +129,11 @@ describe('KnowledgeBasePage', () => {
         per_page: 20
       });
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       await waitFor(() => {
         expect(screen.getByText('No knowledge items found for the selected filter.')).toBeInTheDocument();
@@ -112,7 +145,11 @@ describe('KnowledgeBasePage', () => {
         new Error('Failed to load knowledge items')
       );
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       await waitFor(() => {
         expect(mockShowToast).toHaveBeenCalledWith(
@@ -176,7 +213,11 @@ describe('KnowledgeBasePage', () => {
         return Promise.resolve(mockAllItems);
       });
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       await waitFor(() => {
         expect(screen.getByText('React Documentation')).toBeInTheDocument();
@@ -205,7 +246,11 @@ describe('KnowledgeBasePage', () => {
         total: 0
       });
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       const searchInput = await screen.findByPlaceholderText('Search knowledge base...');
       fireEvent.change(searchInput, { target: { value: 'react hooks' } });
@@ -228,7 +273,11 @@ describe('KnowledgeBasePage', () => {
         total: 0
       });
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       const addButton = await screen.findByText('Knowledge');
       fireEvent.click(addButton);
@@ -250,7 +299,11 @@ describe('KnowledgeBasePage', () => {
         message: 'Crawling started'
       });
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       // Open modal
       const addButton = await screen.findByText('Knowledge');
@@ -297,7 +350,11 @@ describe('KnowledgeBasePage', () => {
         message: 'Document uploaded successfully'
       });
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       // Open modal
       const addButton = await screen.findByText('Knowledge');
@@ -351,7 +408,11 @@ describe('KnowledgeBasePage', () => {
         message: 'Item deleted'
       });
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       await waitFor(() => {
         expect(screen.getByText('React Docs')).toBeInTheDocument();
@@ -392,7 +453,11 @@ describe('KnowledgeBasePage', () => {
         query: 'what is react'
       });
 
-      render(<KnowledgeBasePage />);
+      render(
+        <TestWrapper>
+          <KnowledgeBasePage />
+        </TestWrapper>
+      );
 
       await waitFor(() => {
         expect(screen.getByText('React Docs')).toBeInTheDocument();

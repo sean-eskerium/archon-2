@@ -11,8 +11,9 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
   const env = loadEnv(mode, process.cwd(), '');
   
   // Get host and port from environment variables or use defaults
-  const host = env.VITE_HOST || 'localhost';
-  const port = env.VITE_PORT || '8080';
+  // In Docker, we need to use the service name, not localhost
+  const host = 'archon-pyserver';  // Docker service name
+  const port = '8080';
   
   return {
     plugins: [
@@ -21,6 +22,7 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
       {
         name: 'test-runner',
         configureServer(server) {
+          // Test execution endpoint (basic tests)
           server.middlewares.use('/api/run-tests', (req: any, res: any) => {
             if (req.method !== 'POST') {
               res.statusCode = 405;
@@ -36,8 +38,8 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
               'Access-Control-Allow-Headers': 'Content-Type',
             });
 
-            // Run vitest with streaming output
-            const testProcess = exec('npm run test -- --run --reporter=verbose', {
+            // Run vitest with proper configuration (includes JSON reporter)
+            const testProcess = exec('npm run test -- --run', {
               cwd: process.cwd()
             });
 
@@ -60,6 +62,7 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
                 type: 'completed', 
                 exit_code: code, 
                 status: code === 0 ? 'completed' : 'failed',
+                message: code === 0 ? 'Tests completed and results generated!' : 'Tests failed',
                 timestamp: new Date().toISOString() 
               })}\n\n`);
               res.end();
@@ -78,6 +81,132 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
               testProcess.kill();
             });
           });
+
+          // Test execution with coverage endpoint
+          server.middlewares.use('/api/run-tests-with-coverage', (req: any, res: any) => {
+            if (req.method !== 'POST') {
+              res.statusCode = 405;
+              res.end('Method not allowed');
+              return;
+            }
+
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': 'Content-Type',
+            });
+
+            // Run vitest with coverage using the proper script (which includes JSON reporter)
+            const testProcess = exec('npm run test:coverage', {
+              cwd: process.cwd()
+            });
+
+            testProcess.stdout?.on('data', (data) => {
+              const lines = data.toString().split('\n').filter((line: string) => line.trim());
+              lines.forEach((line: string) => {
+                res.write(`data: ${JSON.stringify({ type: 'output', message: line, timestamp: new Date().toISOString() })}\n\n`);
+              });
+            });
+
+            testProcess.stderr?.on('data', (data) => {
+              const lines = data.toString().split('\n').filter((line: string) => line.trim());
+              lines.forEach((line: string) => {
+                res.write(`data: ${JSON.stringify({ type: 'output', message: line, timestamp: new Date().toISOString() })}\n\n`);
+              });
+            });
+
+            testProcess.on('close', (code) => {
+              res.write(`data: ${JSON.stringify({ 
+                type: 'completed', 
+                exit_code: code, 
+                status: code === 0 ? 'completed' : 'failed',
+                message: code === 0 ? 'Tests completed with coverage and results generated!' : 'Tests failed',
+                timestamp: new Date().toISOString() 
+              })}\n\n`);
+              res.end();
+            });
+
+            testProcess.on('error', (error) => {
+              res.write(`data: ${JSON.stringify({ 
+                type: 'error', 
+                message: error.message, 
+                timestamp: new Date().toISOString() 
+              })}\n\n`);
+              res.end();
+            });
+
+            req.on('close', () => {
+              testProcess.kill();
+            });
+          });
+
+          // Coverage generation endpoint
+          server.middlewares.use('/api/generate-coverage', (req: any, res: any) => {
+            if (req.method !== 'POST') {
+              res.statusCode = 405;
+              res.end('Method not allowed');
+              return;
+            }
+
+            res.writeHead(200, {
+              'Content-Type': 'text/event-stream',
+              'Cache-Control': 'no-cache',
+              'Connection': 'keep-alive',
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Headers': 'Content-Type',
+            });
+
+            res.write(`data: ${JSON.stringify({ 
+              type: 'status', 
+              message: 'Starting coverage generation...', 
+              timestamp: new Date().toISOString() 
+            })}\n\n`);
+
+            // Run coverage generation
+            const coverageProcess = exec('npm run test:coverage', {
+              cwd: process.cwd()
+            });
+
+            coverageProcess.stdout?.on('data', (data) => {
+              const lines = data.toString().split('\n').filter((line: string) => line.trim());
+              lines.forEach((line: string) => {
+                res.write(`data: ${JSON.stringify({ type: 'output', message: line, timestamp: new Date().toISOString() })}\n\n`);
+              });
+            });
+
+            coverageProcess.stderr?.on('data', (data) => {
+              const lines = data.toString().split('\n').filter((line: string) => line.trim());
+              lines.forEach((line: string) => {
+                res.write(`data: ${JSON.stringify({ type: 'output', message: line, timestamp: new Date().toISOString() })}\n\n`);
+              });
+            });
+
+            coverageProcess.on('close', (code) => {
+              res.write(`data: ${JSON.stringify({ 
+                type: 'completed', 
+                exit_code: code, 
+                status: code === 0 ? 'completed' : 'failed',
+                message: code === 0 ? 'Coverage report generated successfully!' : 'Coverage generation failed',
+                timestamp: new Date().toISOString() 
+              })}\n\n`);
+              res.end();
+            });
+
+            coverageProcess.on('error', (error) => {
+              res.write(`data: ${JSON.stringify({ 
+                type: 'error', 
+                message: error.message, 
+                timestamp: new Date().toISOString() 
+              })}\n\n`);
+              res.end();
+            });
+
+            req.on('close', () => {
+              coverageProcess.kill();
+            });
+          });
         }
       }
     ],
@@ -90,8 +219,7 @@ export default defineConfig(({ mode }: ConfigEnv): UserConfig => {
           target: `http://${host}:${port}`,
           changeOrigin: true,
           secure: false,
-          ws: true,
-          rewrite: (path: string) => path.replace(/^\/api/, '')
+          ws: true
         },
       },
     },

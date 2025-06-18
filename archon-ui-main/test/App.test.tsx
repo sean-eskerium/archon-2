@@ -1,10 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { ThemeProvider } from '@/contexts/ThemeContext'
-import { ToastProvider } from '@/contexts/ToastContext'
 import { KnowledgeBasePage } from '@/pages/KnowledgeBasePage'
 import { knowledgeBaseService } from '@/services/knowledgeBaseService'
+import { ThemeProvider } from '@/contexts/ThemeContext'
+import { ToastProvider } from '@/contexts/ToastContext'
+import { SettingsProvider } from '@/contexts/SettingsContext'
+
+// Clear mocks that might interfere
+vi.unmock('@/contexts/ThemeContext');
+vi.unmock('@/contexts/ToastContext');
+vi.unmock('@/contexts/SettingsContext');
 
 // Mock the knowledge base service
 vi.mock('@/services/knowledgeBaseService')
@@ -26,7 +32,9 @@ describe('App Components', () => {
       <MemoryRouter>
         <ThemeProvider>
           <ToastProvider>
-            <KnowledgeBasePage />
+            <SettingsProvider>
+              <KnowledgeBasePage />
+            </SettingsProvider>
           </ToastProvider>
         </ThemeProvider>
       </MemoryRouter>
@@ -41,7 +49,9 @@ describe('App Components', () => {
       <MemoryRouter>
         <ThemeProvider>
           <ToastProvider>
-            <KnowledgeBasePage />
+            <SettingsProvider>
+              <KnowledgeBasePage />
+            </SettingsProvider>
           </ToastProvider>
         </ThemeProvider>
       </MemoryRouter>

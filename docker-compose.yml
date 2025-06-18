@@ -8,8 +8,6 @@ services:
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - HOST=${HOST:-localhost}
-      - PORT=${PORT:-8051}
       - TRANSPORT=${TRANSPORT:-dual}
       - MODEL_CHOICE=${MODEL_CHOICE:-gpt-4o-mini}
       - USE_CONTEXTUAL_EMBEDDINGS=${USE_CONTEXTUAL_EMBEDDINGS:-false}

@@ -1,5 +1,6 @@
 ---
-title: 🚀 Deployment & Monitoring
+title: Deployment
+description: Quick start guide for running Archon
 sidebar_position: 10
 ---
 
@@ -7,636 +8,214 @@ import Tabs from '@theme/Tabs';
 import TabItem from '@theme/TabItem';
 import Admonition from '@theme/Admonition';
 
-# 🚀 Deployment & Real-Time Monitoring
+# Deployment
 
-<div className="hero hero--primary">
-  <div className="container">
-    <h2 className="hero__subtitle">
-      **Production-ready deployment** with Docker, comprehensive monitoring via Logfire, and seamless scaling options
-    </h2>
-  </div>
-</div>
+## Quick Start
 
-Archon is designed as a containerized application using Docker and Docker Compose with **integrated Logfire monitoring**. This guide covers everything from local development to production deployments with full observability.
+<Admonition type="tip" title="Prerequisites">
+- Docker and Docker Compose installed
+- Supabase account (free tier works)
+- Git for cloning the repository
+</Admonition>
 
-## 🏗️ Architecture Overview
+### 1. Clone & Setup
 
-```mermaid
-%%{init:{
-  'theme':'base',
-  'themeVariables': {
-    'primaryColor':'#1f2937',
-    'primaryTextColor':'#ffffff',
-    'primaryBorderColor':'#8b5cf6',
-    'lineColor':'#a855f7',
-    'textColor':'#ffffff',
-    'fontFamily':'Inter',
-    'fontSize':'14px',
-    'background':'#000000',
-    'mainBkg':'#1f2937',
-    'secondBkg':'#111827',
-    'borderColor':'#8b5cf6',
-    'clusterBkg':'#111827',
-    'clusterBorder':'#8b5cf6'
-  }
-}}%%
-graph TB
-    subgraph "🐳 Docker Compose Stack"
-        Frontend["🌐 Frontend Container<br/>React + Nginx<br/>Port 3737"]
-        Backend["⚡ Backend Container<br/>FastAPI + Python<br/>Port 8080"]
-        MCPServer["🔧 MCP Server<br/>Python + Logfire<br/>Port 8051"]
-        Docs["📚 Documentation<br/>Docusaurus<br/>Port 3838"]
-    end
-
-    subgraph "☁️ External Services"
-        Supabase["🗄️ Supabase<br/>PostgreSQL + pgvector"]
-        OpenAI["🤖 OpenAI API<br/>Embeddings + Chat"]
-        Logfire["🔥 Logfire<br/>Real-time Monitoring<br/>& Debugging"]
-    end
-
-    Frontend --> Backend
-    Backend --> MCPServer
-    Backend --> Supabase
-    Backend --> OpenAI
-    MCPServer --> Logfire
-    Backend --> Logfire
-    MCPServer --> Supabase
-
-    classDef neonCore fill:#1a1a2e,stroke:#00d4ff,stroke-width:2px,color:#00d4ff
-    classDef neonExternal fill:#16213e,stroke:#00ff88,stroke-width:2px,color:#00ff88
-    classDef neonCritical fill:#2d1810,stroke:#ff6b6b,stroke-width:3px,color:#ff6b6b
-    
-    class Frontend,Backend,MCPServer,Docs neonCore
-    class Supabase,OpenAI neonExternal
-    class Logfire neonCritical
-```
-
-## ⚡ Quick Start
-
-<Tabs>
-<TabItem value="development" label="🛠️ Development" default>
-
-### Prerequisites
-- **Docker** and **Docker Compose** installed
-- **Git** for repository cloning
-- **API keys** for external services
-
-### Step-by-Step Setup
-
-**1. Clone & Navigate**
 ```bash
+# Clone repository
 git clone <repository-url>
 cd archon
-```
 
-**2. Environment Configuration**
-```bash
+# Create environment file
 cp .env.example .env
 ```
 
-**3. Configure Required Variables**
+### 2. Configure
+
+Edit `.env` with your credentials:
+
 ```bash
-# Essential API Keys
-OPENAI_API_KEY=sk-your_openai_key_here
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_SERVICE_KEY=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
-
-# Logfire Monitoring (Recommended)
-LOGFIRE_TOKEN=your_logfire_token_here
-LOGFIRE_SERVICE_NAME=archon-dev
-LOGFIRE_PROJECT_NAME=archon-development
+SUPABASE_SERVICE_KEY=eyJ0eXAi...
 ```
 
-**4. Launch Application**
+### 3. Launch
+
 ```bash
+# Start all services
 docker-compose up -d
+
+# Check status
+docker-compose ps
 ```
 
-**5. Verify Deployment**
-- 🌐 **Frontend**: http://localhost:3737
-- ⚡ **Backend API**: http://localhost:8080/docs
-- 🔧 **MCP Server**: http://localhost:8051/health
-- 📚 **Documentation**: http://localhost:3838
+### 4. Access
+
+- **UI**: http://localhost:3737
+- **API Docs**: http://localhost:8080/docs
+- **Documentation**: http://localhost:3838
+
+## Service Architecture
+
+```mermaid
+graph LR
+    subgraph "Your Computer"
+        Browser[Web Browser<br/>localhost:3737]
+        IDE[VS Code/Cursor<br/>localhost:8051]
+    end
+    
+    subgraph "Docker Containers"
+        Frontend[frontend<br/>React UI]
+        Backend[archon-pyserver<br/>FastAPI + MCP]
+        Docs[docs<br/>Documentation]
+    end
+    
+    subgraph "Cloud Services"
+        Supabase[Supabase<br/>Database]
+        OpenAI[OpenAI<br/>AI Models]
+    end
+    
+    Browser --> Frontend
+    IDE --> Backend
+    Frontend --> Backend
+    Backend --> Supabase
+    Backend --> OpenAI
+    
+    style Frontend fill:#1a1a2e,stroke:#00d4ff,stroke-width:2px,color:#fff
+    style Backend fill:#1a1a2e,stroke:#00d4ff,stroke-width:2px,color:#fff
+    style Supabase fill:#16213e,stroke:#00ff88,stroke-width:2px,color:#fff
+```
+
+## Common Commands
+
+<Tabs>
+<TabItem value="basic" label="Basic Operations">
+
+```bash
+# Start services
+docker-compose up -d
+
+# Stop services
+docker-compose down
+
+# View logs
+docker-compose logs -f
+
+# Restart a service
+docker-compose restart frontend
+```
 
 </TabItem>
-<TabItem value="production" label="🏭 Production">
+<TabItem value="troubleshooting" label="Troubleshooting">
 
-### Production Deployment
-
-**1. Environment Setup**
 ```bash
-# Production environment file
-cp .env.production.example .env.production
-```
+# Check container status
+docker ps
 
-**2. Production Configuration**
-```bash
-# Required Production Variables
-ENVIRONMENT=production
-OPENAI_API_KEY=sk-your_production_key
-SUPABASE_URL=https://your-prod-project.supabase.co
-SUPABASE_SERVICE_KEY=your_production_service_key
-JWT_SECRET_KEY=your_super_secure_jwt_secret
+# View backend logs
+docker logs archon-pyserver
 
-# Logfire Production Monitoring
-LOGFIRE_TOKEN=your_production_logfire_token
-LOGFIRE_SERVICE_NAME=archon-production
-LOGFIRE_PROJECT_NAME=archon-prod
-LOGFIRE_ENVIRONMENT=production
+# Rebuild after changes
+docker-compose build
+docker-compose up -d
 
-# Security & Performance
-MAX_UPLOAD_SIZE=100MB
-LOG_LEVEL=WARNING
-ENABLE_CORS=false
-```
-
-**3. Production Deployment**
-```bash
-docker-compose -f docker-compose.prod.yml up -d
+# Complete reset
+docker-compose down -v
+docker-compose up -d --build
 ```
 
 </TabItem>
 </Tabs>
 
-## 🔥 Logfire Integration & Monitoring
+## Production Deployment
 
-<Admonition type="tip" icon="🔥" title="New Feature: Real-Time Monitoring">
-Archon now includes **comprehensive Logfire integration** for real-time debugging, performance monitoring, and complete request tracing across all components.
+<Admonition type="info" title="Cloud Deployment">
+For production deployments, consider:
+- Using a reverse proxy (nginx/Caddy)
+- Setting up SSL certificates
+- Configuring environment-specific settings
+- Using managed databases
 </Admonition>
 
-### Key Monitoring Capabilities
+### Docker Compose Production
 
-- **🎯 RAG Query Debugging**: Real-time vector search performance and result analysis
-- **📊 MCP Server Health**: Tool execution times, connection status, and error tracking
-- **🔍 WebSocket Monitoring**: Live progress tracking and connection health
-- **⚡ FastAPI Performance**: Complete request lifecycle with timing details
-- **🧠 AI Agent Interactions**: Monitor all MCP tool calls and responses
-
-### Logfire Configuration
-
-<Tabs>
-<TabItem value="setup" label="🔧 Setup">
-
-**1. Create Logfire Account**
-- Visit [logfire.pydantic.dev](https://logfire.pydantic.dev/)
-- Create account and project
-- Generate API token
-
-**2. Environment Variables**
-```bash
-# Logfire Configuration
-LOGFIRE_TOKEN=your_logfire_api_token
-LOGFIRE_SERVICE_NAME=archon-mcp-server
-LOGFIRE_PROJECT_NAME=archon
-LOGFIRE_ENVIRONMENT=development  # or production
-```
-
-**3. Dashboard Access**
-Your monitoring dashboard will be available at:
-`https://logfire-us.pydantic.dev/your-username/your-project`
-
-</TabItem>
-<TabItem value="features" label="📊 Features">
-
-### Monitoring Dashboard Features
-
-**Real-Time RAG Debugging**
-- Vector embedding generation timing
-- Similarity search performance metrics
-- Result ranking and filtering analysis
-- Source document identification
-
-**MCP Server Performance**
-- Tool execution latency tracking
-- Connection health monitoring
-- Error rate analysis and alerting
-- WebSocket connection stability
-
-**Request Tracing**
-- Complete FastAPI request lifecycle
-- Database query performance
-- External API call monitoring
-- Error propagation tracking
-
-</TabItem>
-</Tabs>
-
-## 📋 Environment Variables Reference
-
-<Tabs>
-<TabItem value="required" label="✅ Required">
-
-| Variable | Description | Example |
-|----------|-------------|----------|
-| `OPENAI_API_KEY` | OpenAI API key for embeddings and chat | `sk-proj-...` |
-| `SUPABASE_URL` | Supabase project URL | `https://xxx.supabase.co` |
-| `SUPABASE_SERVICE_KEY` | Supabase service role key | `eyJ0eXAiOiJKV1Qi...` |
-
-</TabItem>
-<TabItem value="monitoring" label="🔥 Monitoring">
-
-| Variable | Description | Default |
-|----------|-------------|----------|
-| `LOGFIRE_TOKEN` | **Logfire API token for monitoring** | - |
-| `LOGFIRE_SERVICE_NAME` | Service identifier in Logfire | `archon-mcp-server` |
-| `LOGFIRE_PROJECT_NAME` | Project name in Logfire | `archon` |
-| `LOGFIRE_ENVIRONMENT` | Environment tag | `development` |
-
-</TabItem>
-<TabItem value="optional" label="⚙️ Optional">
-
-| Variable | Description | Default |
-|----------|-------------|----------|
-| `JWT_SECRET_KEY` | Secret key for JWT tokens | Auto-generated |
-| `LOG_LEVEL` | Application log level | `INFO` |
-| `MAX_UPLOAD_SIZE` | Maximum file upload size | `50MB` |
-| `FRONTEND_PORT` | Frontend application port | `3737` |
-| `BACKEND_PORT` | Backend API port | `8080` |
-| `MCP_PORT` | MCP server port | `8051` |
-| `ENABLE_CORS` | Enable CORS middleware | `true` |
-
-</TabItem>
-</Tabs>
-
-## 🐳 Docker Compose Configurations
-
-<Tabs>
-<TabItem value="development" label="🛠️ Development">
-
-```yaml title="docker-compose.yml"
+```yaml
+# docker-compose.prod.yml
 version: '3.8'
 
 services:
   backend:
-    build: .
-    ports:
-      - "${BACKEND_PORT:-8080}:8080"
-      - "${MCP_PORT:-8051}:8051"
+    image: your-registry/archon-backend:latest
     environment:
-      # Core Configuration
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      
-      # Logfire Monitoring
-      - LOGFIRE_TOKEN=${LOGFIRE_TOKEN:-}
-      - LOGFIRE_SERVICE_NAME=${LOGFIRE_SERVICE_NAME:-archon-mcp-server}
-      - LOGFIRE_PROJECT_NAME=${LOGFIRE_PROJECT_NAME:-archon}
-      - LOGFIRE_ENVIRONMENT=${LOGFIRE_ENVIRONMENT:-development}
-      
-      # Optional Configuration
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-50MB}
-    volumes:
-      - ./uploads:/app/uploads
-      - ./logs:/app/logs
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-
-  frontend:
-    build:
-      context: ./archon-ui-main
-      dockerfile: Dockerfile
-    ports:
-      - "${FRONTEND_PORT:-3737}:80"
-    environment:
-      - VITE_API_BASE_URL=http://localhost:${BACKEND_PORT:-8080}
-      - VITE_MCP_BASE_URL=http://localhost:${MCP_PORT:-8051}
-    depends_on:
-      - backend
-    restart: unless-stopped
-
-  docs:
-    build:
-      context: ./docs
-      dockerfile: Dockerfile
-    ports:
-      - "3838:3000"
-    restart: unless-stopped
-```
-
-</TabItem>
-<TabItem value="production" label="🏭 Production">
-
-```yaml title="docker-compose.prod.yml"
-version: '3.8'
-
-services:
-  backend:
-    build: .
-    ports:
-      - "${BACKEND_PORT:-8080}:8080"
-      - "${MCP_PORT:-8051}:8051"
-    environment:
-      # Environment
       - ENVIRONMENT=production
-      
-      # Core Configuration
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      
-      # Logfire Production Monitoring
-      - LOGFIRE_TOKEN=${LOGFIRE_TOKEN}
-      - LOGFIRE_SERVICE_NAME=${LOGFIRE_SERVICE_NAME:-archon-production}
-      - LOGFIRE_PROJECT_NAME=${LOGFIRE_PROJECT_NAME:-archon-prod}
-      - LOGFIRE_ENVIRONMENT=production
-      
-      # Production Settings
-      - LOG_LEVEL=${LOG_LEVEL:-WARNING}
-      - MAX_UPLOAD_SIZE=${MAX_UPLOAD_SIZE:-100MB}
-      - ENABLE_CORS=${ENABLE_CORS:-false}
-    volumes:
-      - ./uploads:/app/uploads
-      - ./logs:/app/logs
-    restart: always
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - LOG_LEVEL=WARNING
     deploy:
+      replicas: 2
       resources:
         limits:
           cpus: '2.0'
           memory: 2G
-        reservations:
-          cpus: '1.0'
-          memory: 1G
 
   frontend:
-    build:
-      context: ./archon-ui-main
-      dockerfile: Dockerfile
-    ports:
-      - "${FRONTEND_PORT:-3737}:80"
-    environment:
-      - VITE_API_BASE_URL=${API_BASE_URL:-http://localhost:8080}
-      - VITE_MCP_BASE_URL=${MCP_BASE_URL:-http://localhost:8051}
-    depends_on:
-      - backend
-    restart: always
+    image: your-registry/archon-frontend:latest
     deploy:
+      replicas: 2
       resources:
         limits:
-          cpus: '1.0'
           memory: 512M
 ```
 
-</TabItem>
-</Tabs>
+## Database Management
 
-## 🔍 Health Checks & Monitoring
+### Reset Database
 
-### Endpoint Health Verification
-
-<Admonition type="info" icon="💡" title="Quick Health Check">
-After deployment, verify all services are running correctly:
+<Admonition type="warning" title="Data Loss Warning">
+This will delete ALL data in your database!
 </Admonition>
 
+```sql
+-- Run in Supabase SQL editor
+-- migration/RESET_DB.sql
+```
+
+### Backup Data
+
 ```bash
-# Backend API Health
+# Export data before reset
+pg_dump -h your-db-host -U postgres -d postgres > backup.sql
+```
+
+## Monitoring
+
+### Health Checks
+
+```bash
+# API Health
 curl http://localhost:8080/health
 
-# MCP Server Health  
-curl http://localhost:8051/health
-
-# Frontend Accessibility
-curl http://localhost:3737
-
-# Logfire Integration Status
-# Check your Logfire dashboard for real-time data
+# Check all services
+for port in 3737 8080 8051; do
+  echo "Checking port $port..."
+  curl -s http://localhost:$port/health || echo "No health endpoint"
+done
 ```
 
-### Troubleshooting Common Issues
-
-<Tabs>
-<TabItem value="connection" label="🔌 Connection Issues">
-
-**MCP Server Connection Failed**
-```bash
-# Check container status
-docker-compose ps
-
-# Check MCP server logs
-docker-compose logs backend
-
-# Verify environment variables
-docker-compose exec backend env | grep -E "(SUPABASE|OPENAI|LOGFIRE)"
-```
-
-</TabItem>
-<TabItem value="logfire" label="🔥 Logfire Issues">
-
-**Logfire Authentication Errors**
-```bash
-# Verify token is set
-echo $LOGFIRE_TOKEN
-
-# Check logfire integration in logs
-docker-compose logs backend | grep -i logfire
-
-# Test logfire connection
-docker-compose exec backend python -c "import logfire; print('Logfire OK')"
-```
-
-</TabItem>
-<TabItem value="performance" label="⚡ Performance">
-
-**Slow RAG Queries**
-- Check Logfire dashboard for vector search timing
-- Monitor Supabase connection performance
-- Verify OpenAI API response times
-- Check memory and CPU usage in containers
-
-</TabItem>
-</Tabs>
-
-## 🔐 Security Considerations
-
-<Admonition type="warning" icon="🛡️" title="Production Security">
-Ensure proper security measures for production deployments:
-</Admonition>
-
-- **Environment Variables**: Never commit API keys to version control
-- **JWT Secrets**: Use strong, unique JWT secret keys
-- **Network Security**: Configure proper firewall rules
-- **CORS Settings**: Disable CORS in production or configure allowed origins
-- **Logfire Data**: Review data retention and privacy settings
-- **Container Security**: Keep Docker images updated and scan for vulnerabilities
-
-## 📈 Scaling & Performance
-
-### Horizontal Scaling Options
-
-- **Load Balancing**: Use nginx or cloud load balancers
-- **Container Orchestration**: Deploy with Kubernetes for auto-scaling
-- **Database Scaling**: Utilize Supabase connection pooling
-- **Monitoring**: Leverage Logfire metrics for scaling decisions
-
-### Performance Optimization
-
-- **Resource Limits**: Configure appropriate CPU and memory limits
-- **Caching**: Implement Redis for frequently accessed data
-- **CDN**: Use CDN for static frontend assets
-- **Database Indexing**: Optimize vector search performance in Supabase 
-
-## 🗃️ Database Management
-
-### Database Setup
-
-Archon requires a PostgreSQL database with vector extensions. Follow these steps:
-
-#### Initial Setup
-
-<Tabs>
-<TabItem value="supabase" label="☁️ Supabase (Recommended)" default>
-
-1. **Create Project**: Go to [supabase.com](https://supabase.com) and create a new project
-2. **Get Credentials**: Copy your Project URL and Service Role key from Settings → API
-3. **Run Migrations**: Execute migration files in order in the SQL Editor:
-   - `migration/1_initial_setup.sql` - Core tables and vector setup
-   - `migration/2_archon_projects.sql` - Project management (optional)
-   - `migration/3_mcp_client_management.sql` - MCP client registry (optional)
-
-</TabItem>
-<TabItem value="selfhosted" label="🏠 Self-Hosted PostgreSQL">
-
-```yaml title="docker-compose.yml"
-services:
-  postgres:
-    image: pgvector/pgvector:pg16
-    environment:
-      POSTGRES_DB: archon
-      POSTGRES_USER: archon
-      POSTGRES_PASSWORD: your-secure-password
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./migration:/docker-entrypoint-initdb.d
-    ports:
-      - "5432:5432"
-
-volumes:
-  postgres_data:
-```
-
-</TabItem>
-</Tabs>
-
-### 🔄 Database Reset & Recovery
-
-#### Complete Reset
-
-**⚠️ This will delete ALL data, tables, functions, and policies!**
-
-<Tabs>
-<TabItem value="sql-reset" label="🗑️ SQL Reset (Recommended)" default>
-
-Use the comprehensive reset script for a clean database reset:
-
-```sql
--- Run migration/RESET_DB.sql in your database
--- This safely removes all Archon objects with proper dependency handling
-
--- The script includes:
--- ✅ Drops all RLS policies
--- ✅ Drops all triggers  
--- ✅ Drops all custom functions
--- ✅ Drops all tables with CASCADE
--- ✅ Drops custom types/enums
--- ✅ Cleans up indexes
--- ✅ Verification summary
-```
-
-**After reset, rebuild with migrations:**
-```sql
--- Step 1: Core setup
--- Run migration/1_initial_setup.sql
-
--- Step 2: Projects (optional)
--- Run migration/2_archon_projects.sql
-
--- Step 3: MCP clients (optional)  
--- Run migration/3_mcp_client_management.sql
-```
-
-</TabItem>
-<TabItem value="docker-reset" label="🐳 Docker Reset">
-
-Complete environment reset including Docker volumes:
+### Container Resources
 
 ```bash
-# Stop all services
-docker-compose down -v
+# View resource usage
+docker stats
 
-# Remove containers and volumes
-docker system prune -f
-docker volume prune -f
-
-# Rebuild from scratch
-docker-compose build --no-cache
-docker-compose up -d
-
-# Wait for startup
-sleep 30
-
-# Verify database
-docker exec archon-pyserver python -c "
-from src.services.credential_service import credential_service
-import asyncio
-asyncio.run(credential_service.load_all_credentials())
-print('✅ Database reset completed')
-"
+# Check disk usage
+docker system df
 ```
 
-</TabItem>
-<TabItem value="selective" label="🎯 Selective Cleanup">
+## Next Steps
 
-Remove specific data without full reset:
+<Admonition type="success" title="Ready to Go!">
+Your Archon instance is now running. Next:
 
-```sql
--- Clear knowledge base
-DELETE FROM crawled_pages;
-DELETE FROM code_examples;  
-DELETE FROM sources;
-
--- Clear projects
-DELETE FROM tasks;
-DELETE FROM projects;
-
--- Reset settings (keep core config)
-DELETE FROM settings WHERE category = 'temp';
-
--- Reset MCP clients (keep default)
-DELETE FROM mcp_clients WHERE name != 'Archon (Default)';
-```
-
-</TabItem>
-</Tabs>
-
-#### Backup Before Reset
-
-**Export important data** before resetting:
-
-```sql
--- Export settings
-COPY (SELECT * FROM settings) TO STDOUT WITH CSV HEADER;
-
--- Export projects
-COPY (SELECT * FROM projects) TO STDOUT WITH CSV HEADER;
-
--- Export sources
-COPY (SELECT * FROM sources) TO STDOUT WITH CSV HEADER;
-
--- Export recent content (limit for size)
-COPY (
-  SELECT * FROM crawled_pages 
-  WHERE created_at >= NOW() - INTERVAL '30 days'
-  LIMIT 1000
-) TO STDOUT WITH CSV HEADER;
-``` 
+1. **Set up API keys** in Settings
+2. **Configure MCP** for AI agents
+3. **Start crawling** knowledge sources
+4. **Create projects** and tasks
+</Admonition> 

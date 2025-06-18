@@ -1,22 +1,33 @@
 # UI (React/TypeScript) Codebase Clean-Up Guide
 
+## ✅ WebSocket Migration Status (COMPLETED)
+
+### What Was Fixed
+- **Migrated Core Services** to use `EnhancedWebSocketService`:
+  - ✅ `websocketService.ts` - Generic WebSocket and task updates
+  - ✅ `agentChatService.ts` - Agent chat sessions with proper error handling  
+  - ✅ `crawlProgressServiceV2.ts` - Already using EnhancedWebSocketService
+
+- **Fixed Critical Issues**:
+  - ✅ WebSocket URL mismatch (`/api/agent-chat/{sessionId}` → `/api/agent-chat/sessions/{sessionId}/ws`)
+  - ✅ Docker networking (changed `localhost` → `archon-pyserver` in vite.config.ts)
+  - ✅ Removed unstable dependencies from useCallback arrays preventing reconnection loops
+
+### Remaining WebSocket Services to Migrate
+These services still create direct WebSocket connections and should be migrated:
+- `crawlProgressService.ts` - Old version, consider removing if V2 is stable
+- `mcpService.ts` - MCP server connections
+- `projectCreationProgressService.ts` - Project creation progress
+- `mcpServerService.ts` - MCP server management
+- `projectService.ts` - Project WebSocket connections
+- `testService.ts` - Test execution progress
+
 ## 1. Orphaned and Duplicate Files
 
-### Potentially Unused Components
-- **`MindMapView.tsx`** - Only 86 lines, appears isolated at component root level
-- Check if actively used or experimental code that should be removed
-
-### Duplicate WebSocket Implementations
-- `websocketService.ts` provides a generic service
-- Individual services implement their own WebSocket connections:
-  - `crawlProgressService.ts` - creates new WebSocket
-  - `agentChatService.ts` - creates new WebSocket
-  - `mcpService.ts` - creates new WebSocket
-  - `projectCreationProgressService.ts` - creates new WebSocket
-  - `mcpServerService.ts` - creates new WebSocket
-  - `projectService.ts` - creates new WebSocket
-  - `testService.ts` - creates new WebSocket
-- Should use the shared WebSocketService consistently
+### WebSocket Implementation Status
+- ✅ `EnhancedWebSocketService.ts` - Core service with all features
+- ⚠️ Services partially migrated (see above)
+- 📝 Recommendation: Complete migration for consistency
 
 ## 2. File Organization and Naming Issues
 

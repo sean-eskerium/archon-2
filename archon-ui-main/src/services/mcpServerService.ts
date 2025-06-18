@@ -204,6 +204,11 @@ class MCPServerService {
         if (data.type === 'ping') {
           return;
         }
+        
+        // Ignore connection messages
+        if (data.type === 'connection') {
+          return;
+        }
 
         // Handle log entries
         if (data.timestamp && data.level && data.message) {

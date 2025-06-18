@@ -105,6 +105,7 @@ export const SettingsPage = () => {
           <motion.div variants={itemVariants}>
             <RAGSettings ragSettings={ragSettings} setRagSettings={setRagSettings} />
           </motion.div>
+
         </div>
       </div>
 

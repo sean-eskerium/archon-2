@@ -3,6 +3,14 @@
  * Handles communication with AI agents via REST API and WebSocket streaming
  */
 
+import {
+  EnhancedWebSocketService,
+  createWebSocketService,
+  WebSocketState,
+  WebSocketMessage,
+  WebSocketConfig
+} from './EnhancedWebSocketService';
+
 export interface ChatMessage {
   id: string;
   content: string;
@@ -25,22 +33,14 @@ interface ChatRequest {
   context?: Record<string, any>;
 }
 
-interface WebSocketMessage {
-  type: 'message' | 'typing' | 'ping' | 'stream_chunk' | 'stream_complete' | 'connection_confirmed' | 'heartbeat' | 'pong';
-  data?: any;
-  content?: string;
-  session_id?: string;
-  is_typing?: boolean;
-}
-
 class AgentChatService {
   private baseUrl: string;
-  private wsConnections: Map<string, WebSocket> = new Map();
+  private wsConnections: Map<string, EnhancedWebSocketService> = new Map();
   private messageHandlers: Map<string, (message: ChatMessage) => void> = new Map();
   private typingHandlers: Map<string, (isTyping: boolean) => void> = new Map();
   private streamHandlers: Map<string, (chunk: string) => void> = new Map();
   private streamCompleteHandlers: Map<string, () => void> = new Map();
-  private errorHandlers: Map<string, (error: Event) => void> = new Map();
+  private errorHandlers: Map<string, (error: Event | Error) => void> = new Map();
   private closeHandlers: Map<string, (event: CloseEvent) => void> = new Map();
   private reconnectTimeouts: Map<string, NodeJS.Timeout> = new Map();
   private reconnectAttempts: Map<string, number> = new Map();
@@ -56,16 +56,19 @@ class AgentChatService {
   private readonly sessionValidationTTL = 30000; // 30 seconds
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+    // In development, the API is proxied through Vite, so we use the same origin
+    // In production, this would be the actual API URL
+    this.baseUrl = '';
   }
 
   /**
    * Get WebSocket URL for a session
    */
   private getWebSocketUrl(sessionId: string): string {
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = new URL(this.baseUrl).host;
-    return `${wsProtocol}//${host}/api/agent-chat/sessions/${sessionId}/ws`;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const host = window.location.hostname;
+    const port = '8080'; // Backend WebSocket port
+    return `${protocol}//${host}:${port}/api/agent-chat/sessions/${sessionId}/ws`;
   }
 
   /**
@@ -100,29 +103,21 @@ class AgentChatService {
    * Clean up WebSocket connection and handlers for a session
    */
   private cleanupConnection(sessionId: string): void {
-    // Clear any pending reconnection attempt
-    const reconnectTimeout = this.reconnectTimeouts.get(sessionId);
-    if (reconnectTimeout) {
-      clearTimeout(reconnectTimeout);
+    // Clear any reconnect timeout
+    const timeout = this.reconnectTimeouts.get(sessionId);
+    if (timeout) {
+      clearTimeout(timeout);
       this.reconnectTimeouts.delete(sessionId);
     }
     
-    // Close WebSocket if it exists
+    // Close WebSocket if open
     const ws = this.wsConnections.get(sessionId);
     if (ws) {
-      // Be more careful about closing connections
-      if (ws.readyState === WebSocket.OPEN) {
-        console.log(`Closing WebSocket connection for session ${sessionId}`);
-        ws.close(1000, 'Client disconnected');
-      } else if (ws.readyState === WebSocket.CONNECTING) {
-        console.log(`Aborting connecting WebSocket for session ${sessionId}`);
-        // For connecting sockets, we need to wait or force close
-        ws.close();
-      }
+      ws.disconnect();
       this.wsConnections.delete(sessionId);
     }
     
-    // Remove all handlers
+    // Clear cached data only after session is recreated
     this.messageHandlers.delete(sessionId);
     this.typingHandlers.delete(sessionId);
     this.streamHandlers.delete(sessionId);
@@ -243,31 +238,31 @@ class AgentChatService {
    * Handle incoming WebSocket messages
    */
   private handleIncomingMessage(
-    event: MessageEvent,
+    wsMessage: WebSocketMessage,
     onMessage: (message: ChatMessage) => void,
     onTyping: (isTyping: boolean) => void,
     onStreamChunk?: (chunk: string) => void,
     onStreamComplete?: () => void
   ): void {
     try {
-      const wsMessage = JSON.parse(event.data) as WebSocketMessage;
+      console.log(`Processing WebSocket message:`, wsMessage);
       
       switch (wsMessage.type) {
         case 'message':
           if (wsMessage.data) {
-            // Ensure timestamp is a Date object
-            if (typeof wsMessage.data.timestamp === 'string') {
-              wsMessage.data.timestamp = new Date(wsMessage.data.timestamp);
-            }
-            onMessage(wsMessage.data);
+            const chatMessage: ChatMessage = {
+              id: wsMessage.data.id || new Date().toISOString(),
+              content: wsMessage.data.content || wsMessage.content || '',
+              sender: wsMessage.data.sender || 'agent',
+              timestamp: wsMessage.data.timestamp ? new Date(wsMessage.data.timestamp) : new Date(),
+              agent_type: wsMessage.data.agent_type,
+            };
+            onMessage(chatMessage);
           }
           break;
           
         case 'typing':
-          // Handle both possible formats for typing status
-          const isTyping = wsMessage.is_typing === true || 
-                         (wsMessage.data && wsMessage.data.is_typing === true);
-          onTyping(isTyping);
+          onTyping(wsMessage.is_typing || false);
           break;
           
         case 'stream_chunk':
@@ -282,23 +277,14 @@ class AgentChatService {
           }
           break;
           
-        case 'ping':
-          // Keep connection alive - no action needed
-          break;
-          
         case 'connection_confirmed':
-          // Connection established successfully
-          console.log('✅ Agent chat WebSocket connection confirmed');
+          console.log('🟢 Connection confirmed by server');
           break;
           
         case 'heartbeat':
           // Server heartbeat - respond with ping
           console.log('💓 Received heartbeat from server');
-          // Find the sessionId from the connection map
-          const currentSessionId = wsMessage.session_id || Array.from(this.wsConnections.entries()).find(([_, ws]) => ws === event.target)?.[0];
-          if (currentSessionId && this.wsConnections.get(currentSessionId)) {
-            this.wsConnections.get(currentSessionId)?.send('ping');
-          }
+          // EnhancedWebSocketService handles heartbeat automatically
           break;
           
         case 'pong':
@@ -323,8 +309,10 @@ class AgentChatService {
       agent_type: agentType,
     };
     console.log(`[AGENT SERVICE] Creating session with body:`, requestBody);
+    const url = `${this.baseUrl}/api/agent-chat/sessions`;
+    console.log(`[AGENT SERVICE] POST to URL:`, url);
     
-    const response = await fetch(`${this.baseUrl}/api/agent-chat/sessions`, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -402,29 +390,21 @@ class AgentChatService {
   /**
    * Connect to WebSocket for real-time communication
    */
-  connectWebSocket(
+  async connectWebSocket(
     sessionId: string,
     onMessage: (message: ChatMessage) => void,
     onTyping: (isTyping: boolean) => void,
     onStreamChunk?: (chunk: string) => void,
     onStreamComplete?: () => void,
-    onError?: (error: Event) => void,
+    onError?: (error: Event | Error) => void,
     onClose?: (event: CloseEvent) => void
-  ): void {
+  ): Promise<void> {
     // Check and close any existing connection properly
     const existingWs = this.wsConnections.get(sessionId);
     if (existingWs) {
-      console.log(`🧹 Cleaning up existing WebSocket for session ${sessionId}, state: ${existingWs.readyState}`);
-      // Always close existing connection regardless of state
-      if (existingWs.readyState === WebSocket.OPEN || existingWs.readyState === WebSocket.CONNECTING) {
-        existingWs.close(1000, 'Reconnecting');
-      }
+      console.log(`🧹 Cleaning up existing WebSocket for session ${sessionId}`);
+      existingWs.disconnect();
       this.wsConnections.delete(sessionId);
-      
-             // If it was still connecting, we'll just proceed - the close() call above will handle it
-       if (existingWs.readyState === WebSocket.CONNECTING) {
-         console.log(`⚠️ Previous connection was still connecting, forced close initiated`);
-       }
     }
 
     // Store handlers for reconnection
@@ -451,130 +431,65 @@ class AgentChatService {
     this.reconnectAttempts.set(sessionId, 0);
 
     // Create WebSocket connection
-    const wsUrl = this.getWebSocketUrl(sessionId);
-    console.log(`🔌 Attempting to connect WebSocket to: ${wsUrl}`);
+    const wsService = createWebSocketService(this.getWebSocketConfig());
+    this.wsConnections.set(sessionId, wsService);
     
-    const ws = new WebSocket(wsUrl);
-    this.wsConnections.set(sessionId, ws);
-
-    ws.onopen = () => {
-      console.log(`🚀 WebSocket connected for session ${sessionId}`);
-      // Reset reconnect attempts on successful connection
-      this.reconnectAttempts.set(sessionId, 0);
-      // Notify UI that we're online
-      this.notifyStatusChange('online', sessionId);
-    };
-
-    ws.onmessage = (event) => {
-      console.log(`📨 WebSocket message received for session ${sessionId}:`, event.data);
+    // Set up message handler
+    wsService.addMessageHandler('*', (message) => {
       this.handleIncomingMessage(
-        event,
+        message,
         onMessage,
         onTyping,
         onStreamChunk,
         onStreamComplete
       );
-    };
-
-    ws.onerror = (error) => {
-      console.error(`❌ WebSocket error for session ${sessionId}:`, error);
-      console.error(`WebSocket state at error: ${ws.readyState} (0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)`);
-      
-      // Immediately notify UI of connection issues
-      this.notifyStatusChange('offline', sessionId);
-      
-      // Check if session validation is already cached to prevent spam
-      if (ws.readyState === WebSocket.CLOSED) {
-        console.log(`🔍 WebSocket closed immediately, checking if session ${sessionId} is valid`);
-        
-        // Check cache first to prevent excessive validation requests
-        if (this.isSessionValidationCached(sessionId)) {
-          const cached = this.sessionValidationCache.get(sessionId);
-          if (!cached?.valid) {
-            console.log(`🚨 Session ${sessionId} known to be invalid from cache, triggering session recovery`);
-            this.handleSessionInvalidation(sessionId);
-            return;
-          } else {
-            console.log(`Session ${sessionId} is valid from cache, scheduling normal reconnect`);
-            this.notifyStatusChange('connecting', sessionId);
-            this.scheduleReconnect(sessionId);
-            return;
-          }
-        }
-        
-        // Use setTimeout to avoid blocking the error handler
-        setTimeout(async () => {
-          try {
-            const response = await fetch(`${this.baseUrl}/api/agent-chat/sessions/${sessionId}`);
-            const isValid = response.status !== 403 && response.status !== 404;
-            
-            // Cache the validation result
-            this.cacheSessionValidation(sessionId, isValid);
-            
-            if (!isValid) {
-              console.log(`🚨 Session ${sessionId} is invalid (${response.status}), triggering session recovery`);
-              await this.handleSessionInvalidation(sessionId);
-              return; // Don't call onError since we're handling it
-            } else {
-              console.log(`Session ${sessionId} is valid, scheduling normal reconnect`);
-              this.notifyStatusChange('connecting', sessionId);
-              this.scheduleReconnect(sessionId);
-            }
-          } catch (fetchError) {
-            console.log(`Could not verify session ${sessionId}:`, fetchError);
-            // On fetch error, assume temporary network issue and schedule reconnect
-            this.notifyStatusChange('connecting', sessionId);
-            this.scheduleReconnect(sessionId);
-          }
+    });
+    
+    // Set up error handler
+    if (onError) {
+      wsService.addErrorHandler(onError);
+    }
+    
+    // Set up state change handler
+    wsService.addStateChangeHandler((state) => {
+      switch (state) {
+        case WebSocketState.CONNECTED:
+          console.log(`🟢 WebSocket connected for session ${sessionId}`);
+          this.reconnectAttempts.set(sessionId, 0);
+          this.notifyStatusChange('online', sessionId);
+          break;
           
-          // Call the original error handler if provided
-          if (onError) {
-            onError(error);
+        case WebSocketState.DISCONNECTED:
+          console.log(`🔌 WebSocket disconnected for session ${sessionId}`);
+          this.notifyStatusChange('offline', sessionId);
+          
+          // Handle session invalidation or schedule reconnect
+          if (onClose) {
+            onClose(new CloseEvent('close'));
           }
-        }, 100);
-      } else {
-        // Normal error handling for other cases
-        if (onError) {
-          onError(error);
-        }
+          break;
+          
+        case WebSocketState.RECONNECTING:
+          console.log(`🟢 WebSocket reconnecting for session ${sessionId}`);
+          this.notifyStatusChange('connecting', sessionId);
+          break;
+          
+        case WebSocketState.FAILED:
+          console.log(`❌ WebSocket failed for session ${sessionId}`);
+          this.notifyStatusChange('offline', sessionId);
+          this.handleSessionInvalidation(sessionId);
+          break;
       }
-    };
-
-    ws.onclose = (event) => {
-      console.log(`🔌 WebSocket closed for session ${sessionId}:`, event.code, event.reason);
-      console.log(`Close event details: wasClean=${event.wasClean}, code=${event.code}, reason="${event.reason}"`);
-      this.wsConnections.delete(sessionId);
-      
-      // Notify UI of disconnection unless it's a normal close
-      if (event.code !== 1000) {
-        this.notifyStatusChange('offline', sessionId);
-      }
-      
-      // Handle different close codes
-      if (event.code === 4004) {
-        // 4004 = Custom code from backend indicating "Session not found"
-        console.warn(`🚨 Backend says session ${sessionId} not found (code 4004), triggering session recovery`);
-        this.handleSessionInvalidation(sessionId);
-      } else if (event.code === 1006) {
-        // 1006 = abnormal closure, often indicates connection issues
-        console.log(`Connection lost unexpectedly (code 1006) for session ${sessionId}`);
-        this.notifyStatusChange('connecting', sessionId);
-        this.scheduleReconnect(sessionId);
-      } else if (event.code === 1002 || event.code === 1003) {
-        // 1002/1003 = protocol errors, likely session invalidation
-        console.warn(`Session ${sessionId} may be invalid, attempting session recovery`);
-        this.handleSessionInvalidation(sessionId);
-      } else if (event.code !== 1000) { 
-        // 1000 is normal closure, anything else might need reconnection
-        console.log(`Scheduling reconnect for abnormal closure (code ${event.code})`);
-        this.notifyStatusChange('connecting', sessionId);
-        this.scheduleReconnect(sessionId);
-      }
-      
-      if (onClose) {
-        onClose(event);
-      }
-    };
+    });
+    
+    try {
+      const endpoint = `/api/agent-chat/sessions/${sessionId}/ws`;
+      console.log(`🔌 Attempting to connect WebSocket to: ${endpoint}`);
+      await wsService.connect(endpoint);
+    } catch (error) {
+      console.error(`❌ Failed to connect WebSocket for session ${sessionId}:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -598,15 +513,15 @@ class AgentChatService {
    */
   isConnected(sessionId: string): boolean {
     const ws = this.wsConnections.get(sessionId);
-    return ws?.readyState === WebSocket.OPEN;
+    return ws?.isConnected() ?? false;
   }
 
   /**
    * Get WebSocket connection state for a session
    */
-  getConnectionState(sessionId: string): number | null {
+  getConnectionState(sessionId: string): WebSocketState | null {
     const ws = this.wsConnections.get(sessionId);
-    return ws?.readyState ?? null;
+    return ws?.state ?? null;
   }
 
   /**
@@ -679,12 +594,12 @@ class AgentChatService {
   }
 
   /**
-   * Get the current active session ID (useful after session recovery)
+   * Get current active session ID (useful after session recovery)
    */
   getCurrentSessionId(): string | null {
     // Return the first active session ID, or null if none
     for (const [sessionId, ws] of this.wsConnections.entries()) {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      if (ws.isConnected()) {
         return sessionId;
       }
     }
@@ -697,7 +612,7 @@ class AgentChatService {
   getActiveSessions(): string[] {
     return Array.from(this.wsConnections.keys()).filter(sessionId => {
       const ws = this.wsConnections.get(sessionId);
-      return ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING);
+      return ws && ws.isConnected();
     });
   }
 
@@ -783,6 +698,16 @@ class AgentChatService {
    */
   getServerStatus(): 'online' | 'offline' | 'unknown' | 'connecting' {
     return this.serverStatus;
+  }
+
+  private getWebSocketConfig(): WebSocketConfig {
+    return {
+      maxReconnectAttempts: this.maxReconnectAttempts,
+      reconnectInterval: this.reconnectDelay,
+      heartbeatInterval: 30000,
+      enableAutoReconnect: true,
+      enableHeartbeat: true,
+    };
   }
 }
 
