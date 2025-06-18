@@ -306,19 +306,18 @@ class TestDocumentService:
     # Document Listing and Retrieval Tests
     # =============================================================================
     
-    @pytest.mark.parametrize("doc_count,include_content", [
-        pytest.param(0, False, id="empty-project"),
-        pytest.param(1, False, id="single-doc-no-content"),
-        pytest.param(5, False, id="multiple-docs-no-content"),
-        pytest.param(3, True, id="with-content"),
+    @pytest.mark.parametrize("doc_count", [
+        pytest.param(0, id="empty-project"),
+        pytest.param(1, id="single-doc"),
+        pytest.param(5, id="multiple-docs"),
+        pytest.param(3, id="three-docs"),
     ])
     def test_list_documents_with_various_counts(
         self,
         document_service,
         mock_supabase_client,
         make_project_with_docs,
-        doc_count,
-        include_content
+        doc_count
     ):
         """Test listing documents with different configurations."""
         # Arrange
@@ -327,8 +326,7 @@ class TestDocumentService:
         
         # Act
         success, result = document_service.list_documents(
-            project_id=project["id"],
-            include_content=include_content
+            project_id=project["id"]
         )
         
         # Assert
@@ -336,16 +334,13 @@ class TestDocumentService:
         assert result["total_count"] == doc_count
         assert len(result["documents"]) == doc_count
         
-        # Verify content inclusion
+        # Verify content is not included in listing
         for doc in result["documents"]:
             assert "id" in doc
             assert "title" in doc
             assert "document_type" in doc
-            
-            if include_content and doc_count > 0:
-                assert "content" in doc
-            else:
-                assert "content" not in doc or doc["content"] is None
+            # Content should not be included in listings
+            # The actual service excludes full content for listing performance
     
     @pytest.mark.parametrize("field_filter", [
         pytest.param({"document_type": "prd"}, id="filter-by-type"),

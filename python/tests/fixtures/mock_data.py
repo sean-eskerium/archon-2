@@ -40,7 +40,11 @@ class ProjectFactory:
         
         defaults = {
             "id": IDGenerator.generate("proj"),
-            "name": f"Test Project {random.randint(1, 1000)}",
+            "title": f"Test Project {random.randint(1, 1000)}",
+            "docs": [],
+            "features": [],
+            "data": [],
+            "github_repo": None,
             "description": "A test project for automated testing",
             "status": random.choice(["active", "archived", "draft"]),
             "metadata": {
@@ -65,7 +69,7 @@ class ProjectFactory:
         """Create multiple projects with common attributes."""
         return [
             ProjectFactory.create(
-                name=f"Batch Project {i+1}",
+                title=f"Batch Project {i+1}",
                 **common_kwargs
             )
             for i in range(count)
@@ -157,7 +161,20 @@ class DocumentFactory:
     
     @staticmethod
     def create(project_id: Optional[str] = None, **kwargs) -> Dict[str, Any]:
-        """Create a document with default values and overrides."""
+        """Create a document with default values and overrides.
+        
+        This creates documents matching the structure expected by DocumentService:
+        {
+            "id": str,
+            "document_type": str,
+            "title": str,
+            "content": dict,
+            "tags": list,
+            "status": str,
+            "version": str,
+            "author": str (optional)
+        }
+        """
         now = datetime.utcnow()
         
         # Generate some fake content
@@ -171,7 +188,7 @@ class DocumentFactory:
         
         defaults = {
             "id": IDGenerator.generate("doc"),
-            "project_id": project_id or IDGenerator.generate("proj"),
+            "document_type": kwargs.get("document_type", random.choice(["prd", "design", "spec", "general"])),
             "title": random.choice(DocumentFactory.DOCUMENT_TITLES),
             "content": {
                 "type": "markdown",
@@ -182,21 +199,19 @@ class DocumentFactory:
                     {"title": "Conclusion", "content": paragraphs[4]}
                 ]
             },
-            "version": 1,
-            "metadata": {
-                "author": random.choice(["user1", "user2", "user3"]),
-                "tags": random.sample(["draft", "review", "approved", "technical", "user-facing"], k=2),
-                "word_count": random.randint(500, 5000),
-                "reading_time_minutes": random.randint(2, 20)
-            },
+            "tags": random.sample(["draft", "review", "approved", "technical", "user-facing"], k=2),
+            "status": random.choice(["draft", "review", "approved", "published"]),
+            "version": "1.0",
+            "author": random.choice(["user1", "user2", "user3"]),
             "created_at": now.isoformat(),
             "updated_at": now.isoformat(),
         }
         
+        # Note: project_id is not part of the document structure in docs JSONB
+        # It's tracked at the project level
+        
         # Deep merge kwargs
         result = defaults.copy()
-        if "metadata" in kwargs and "metadata" in result:
-            result["metadata"] = {**result["metadata"], **kwargs.pop("metadata")}
         if "content" in kwargs and "content" in result:
             result["content"] = {**result["content"], **kwargs.pop("content")}
         result.update(kwargs)
@@ -481,7 +496,7 @@ def generate_random_json() -> Dict[str, Any]:
 
 def create_test_project_hierarchy() -> Dict[str, Any]:
     """Create a complete project hierarchy with tasks and documents."""
-    project = ProjectFactory.create(name="Test Project Hierarchy")
+    project = ProjectFactory.create(title="Test Project Hierarchy")
     
     # Create main tasks
     tasks = []
