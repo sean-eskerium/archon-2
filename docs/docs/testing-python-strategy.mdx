@@ -274,7 +274,110 @@ class TestMCPServer:
         assert "crawler_ready" in health_data
 ```
 
-### 4. Fixture Best Practices
+### 4. WebSocket Testing
+
+```python
+# tests/integration/test_websockets/test_task_updates.py
+import pytest
+import asyncio
+from httpx import AsyncClient
+from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, patch
+
+@pytest.mark.asyncio
+class TestTaskUpdatesWebSocket:
+    """Test WebSocket endpoints for real-time task updates."""
+    
+    async def test_websocket_connection_and_initial_tasks(self, client: TestClient, test_project):
+        """Test WebSocket connection and initial tasks message."""
+        with client.websocket_connect(f"/api/projects/{test_project.id}/tasks/ws") as websocket:
+            # Should receive initial tasks
+            data = websocket.receive_json()
+            
+            assert data["type"] == "initial_tasks"
+            assert data["data"]["project_id"] == test_project.id
+            assert isinstance(data["data"]["tasks"], list)
+    
+    async def test_websocket_task_updates_from_database_changes(self, client: TestClient, test_project, mock_db_detector):
+        """Test that database changes trigger WebSocket updates."""
+        with client.websocket_connect(f"/api/projects/{test_project.id}/tasks/ws") as websocket:
+            # Skip initial message
+            websocket.receive_json()
+            
+            # Simulate database change detection
+            await mock_db_detector.simulate_task_update(test_project.id, {
+                "id": "task-1",
+                "status": "doing",
+                "updated_at": "2024-01-01T00:00:00Z"
+            })
+            
+            # Should receive task update
+            data = websocket.receive_json()
+            assert data["type"] == "tasks_updated"
+            assert len(data["data"]["updated_tasks"]) == 1
+            assert data["data"]["updated_tasks"][0]["status"] == "doing"
+    
+    async def test_websocket_heartbeat_handling(self, client: TestClient, test_project):
+        """Test WebSocket heartbeat/ping-pong mechanism."""
+        with client.websocket_connect(f"/api/projects/{test_project.id}/tasks/ws") as websocket:
+            # Skip initial message
+            websocket.receive_json()
+            
+            # Send ping
+            websocket.send_text("ping")
+            
+            # Should receive pong
+            data = websocket.receive_json()
+            assert data["type"] == "pong"
+    
+    async def test_websocket_reconnection_with_invalid_session(self, client: TestClient):
+        """Test WebSocket behavior with invalid session ID."""
+        # Try to connect with non-existent project
+        with pytest.raises(Exception) as exc_info:
+            with client.websocket_connect("/api/projects/invalid-id/tasks/ws") as websocket:
+                pass
+        
+        # Should fail to connect
+        assert "403" in str(exc_info.value) or "404" in str(exc_info.value)
+
+# tests/integration/test_websockets/test_crawl_progress.py
+@pytest.mark.asyncio
+class TestCrawlProgressWebSocket:
+    """Test WebSocket progress tracking for crawl operations."""
+    
+    async def test_crawl_progress_streaming(self, client: TestClient, mock_progress_manager):
+        """Test real-time progress updates during crawling."""
+        progress_id = "test-progress-123"
+        
+        with client.websocket_connect(f"/api/crawl-progress/{progress_id}") as websocket:
+            # Simulate progress updates
+            await mock_progress_manager.update_progress(progress_id, {
+                "status": "crawling",
+                "percentage": 25,
+                "currentUrl": "https://example.com/page1"
+            })
+            
+            # Should receive progress update
+            data = websocket.receive_json()
+            assert data["type"] == "crawl_progress"
+            assert data["data"]["percentage"] == 25
+            assert data["data"]["status"] == "crawling"
+            
+            # Simulate completion
+            await mock_progress_manager.complete_crawl(progress_id, {
+                "status": "completed",
+                "percentage": 100,
+                "chunksStored": 50
+            })
+            
+            # Should receive completion message
+            data = websocket.receive_json()
+            assert data["type"] == "crawl_completed"
+            assert data["data"]["percentage"] == 100
+            assert data["data"]["chunksStored"] == 50
+```
+
+### 5. Fixture Best Practices
 
 ```python
 # tests/conftest.py

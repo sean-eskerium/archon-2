@@ -318,7 +318,104 @@ describe('useWebSocket', () => {
 })
 ```
 
-### 3. Service/API Testing
+### 3. WebSocket Testing
+
+```typescript
+// __tests__/services/WebSocketService.test.ts
+import { renderHook, act, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { EnhancedWebSocketService } from '@/services/EnhancedWebSocketService'
+import WS from 'vitest-websocket-mock'
+
+describe('EnhancedWebSocketService', () => {
+  let server: WS
+  let service: EnhancedWebSocketService
+  
+  beforeEach(async () => {
+    server = new WS('ws://localhost:8080/api/test')
+    service = new EnhancedWebSocketService({
+      maxReconnectAttempts: 3,
+      reconnectInterval: 100,
+      enableAutoReconnect: true
+    })
+  })
+  
+  afterEach(() => {
+    service.disconnect()
+    WS.clean()
+  })
+
+  it('should connect to WebSocket and handle messages', async () => {
+    // Arrange
+    const onMessage = vi.fn()
+    service.addMessageHandler('update', onMessage)
+    
+    // Act
+    await service.connect('/api/test')
+    await server.connected
+    
+    server.send(JSON.stringify({ type: 'update', data: 'test data' }))
+    
+    // Assert
+    await waitFor(() => {
+      expect(service.isConnected()).toBe(true)
+      expect(onMessage).toHaveBeenCalledWith({
+        type: 'update',
+        data: 'test data'
+      })
+    })
+  })
+
+  it('should handle reconnection on disconnect', async () => {
+    // Arrange
+    const stateChanges: string[] = []
+    service.addStateChangeHandler((state) => {
+      stateChanges.push(state)
+    })
+    
+    // Act - Connect
+    await service.connect('/api/test')
+    await server.connected
+    
+    // Act - Disconnect
+    server.close()
+    
+    // Wait for reconnection attempt
+    await waitFor(() => {
+      expect(stateChanges).toContain('RECONNECTING')
+    }, { timeout: 500 })
+    
+    // Create new server for reconnection
+    server = new WS('ws://localhost:8080/api/test')
+    
+    await waitFor(() => {
+      expect(stateChanges).toContain('CONNECTED')
+      expect(service.isConnected()).toBe(true)
+    }, { timeout: 500 })
+  })
+
+  it('should handle message timeout', async () => {
+    // Arrange
+    const service = new EnhancedWebSocketService({
+      messageTimeout: 100,
+      enableAutoReconnect: false
+    })
+    
+    await service.connect('/api/test')
+    await server.connected
+    
+    // Act - Wait for timeout
+    await new Promise(resolve => setTimeout(resolve, 200))
+    
+    // Assert
+    await waitFor(() => {
+      expect(service.isConnected()).toBe(false)
+    })
+  })
+})
+```
+
+### 4. Service/API Testing
 
 ```typescript
 // __tests__/services/api.test.ts
