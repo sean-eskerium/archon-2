@@ -5,17 +5,10 @@ sidebar_position: 8
 
 # Testing Overview
 
-<<<<<<< HEAD
-Archon employs a comprehensive testing strategy with **235+ test cases** covering unit tests, integration tests, end-to-end tests, and performance testing across all components of the system.
-=======
-Archon employs a comprehensive testing strategy across both backend (Python/pytest) and frontend (React/Vitest) components. This guide provides an overview of our testing approach, with detailed strategies available for each technology stack.
->>>>>>> origin/main
+Archon employs a comprehensive testing strategy with **235+ test cases** across both backend (Python/pytest) and frontend (React/Vitest) components. This guide provides an overview of our testing approach, with detailed strategies available for each technology stack.
 
 ## 🎯 Core Testing Principles
 
-<<<<<<< HEAD
-Our testing approach follows the testing pyramid with extensive coverage:
-=======
 1. **Test at the Right Level**: Follow the testing pyramid - many unit tests, fewer integration tests, minimal E2E tests
 2. **Fast Feedback**: Tests should run quickly to enable rapid development
 3. **Isolation**: Each test should be independent and repeatable
@@ -23,7 +16,6 @@ Our testing approach follows the testing pyramid with extensive coverage:
 5. **Comprehensive Coverage**: Aim for high coverage of critical paths
 
 ## 🏗️ Testing Architecture
->>>>>>> origin/main
 
 ```mermaid
 %%{init:{
@@ -43,17 +35,10 @@ Our testing approach follows the testing pyramid with extensive coverage:
   }
 }}%%
 graph TB
-<<<<<<< HEAD
-    subgraph "Testing Pyramid"
-        E2E["E2E Tests<br/>🔍 User Journeys<br/>WebSocket/API Integration"]
-        Integration["Integration Tests<br/>🔗 API & Database<br/>FastAPI TestClient"]
-        Unit["Unit Tests (235+ cases)<br/>⚡ Services & Components<br/>pytest + AsyncMock"]
-=======
     subgraph "Backend Testing (Python)"
-        PyUnit["Unit Tests<br/>⚡ pytest + mocks<br/>Services, Utils, Models"]
+        PyUnit["Unit Tests (235+ cases)<br/>⚡ pytest + mocks<br/>Services, Utils, Models"]
         PyInt["Integration Tests<br/>🔗 FastAPI TestClient<br/>API Endpoints, Database"]
         PyE2E["E2E Tests<br/>🔍 Full Workflows<br/>MCP Tools, WebSockets"]
->>>>>>> origin/main
     end
 
     subgraph "Frontend Testing (React)"
@@ -156,7 +141,7 @@ uv sync
 uv pip install pytest pytest-asyncio pytest-cov pytest-timeout pytest-mock
 ```
 
-### Running Tests
+### Running Backend Tests (Python)
 
 ```bash
 # Run all tests using the test runner
@@ -183,6 +168,38 @@ PYTHONPATH=/workspace/python pytest tests/unit/test_api/ -v
 pytest -m "not slow"       # Skip slow tests
 pytest -m "critical"       # Run critical tests only
 pytest -m "websocket"      # Run WebSocket tests only
+
+# Run in watch mode (requires pytest-watch)
+ptw
+```
+
+### Running Frontend Tests (React)
+
+```bash
+# Navigate to UI directory
+cd archon-ui-main
+
+# Run all tests
+npm test
+
+# Run with coverage
+npm run test:coverage
+
+# Run with UI
+npm run test:ui
+
+# Run in watch mode
+npm run test:watch
+```
+
+### Running Tests via Docker
+
+```bash
+# Run Python tests in Docker
+docker-compose run --rm archon-pyserver pytest
+
+# Run React tests in Docker
+docker-compose run --rm archon-ui npm test
 ```
 
 ### Running Tests from UI
@@ -364,10 +381,13 @@ async def test_bulk_operation_performance(benchmark_service):
 
 ## 📊 Coverage Goals
 
-- **Overall Coverage**: 80% minimum
-- **Critical Services**: 95% minimum
-- **API Endpoints**: 90% minimum
-- **Utility Functions**: 85% minimum
+| Component | Target Coverage | Critical Path Coverage |
+|-----------|----------------|----------------------|
+| Python Backend | 80% | 95% |
+| React Frontend | 80% | 90% |
+| MCP Tools | 90% | 100% |
+| API Endpoints | 85% | 95% |
+| Utilities | 95% | 100% |
 
 Current coverage can be viewed by running:
 ```bash
@@ -402,84 +422,6 @@ async def test_long_websocket_operation():
     # test code
 ```
 
-<<<<<<< HEAD
-## 🔄 Continuous Integration
-
-Tests are automatically run on:
-- Pull request creation
-- Commits to main branch
-- Nightly builds
-- Manual trigger from UI
-
-The CI pipeline includes:
-1. Unit tests with coverage report
-2. Integration tests
-3. E2E tests (if applicable)
-4. Performance benchmarks
-5. Security scanning
-=======
-## 🚀 Quick Start Guide
-
-### Running Backend Tests (Python)
-
-```bash
-# Navigate to Python directory
-cd python
-
-# Run all tests
-pytest
-
-# Run with coverage
-pytest --cov=src --cov-report=html
-
-# Run specific test category
-pytest -m unit
-pytest -m integration
-pytest -m mcp
-
-# Run in watch mode (requires pytest-watch)
-ptw
-```
-
-### Running Frontend Tests (React)
-
-```bash
-# Navigate to UI directory
-cd archon-ui-main
-
-# Run all tests
-npm test
-
-# Run with coverage
-npm run test:coverage
-
-# Run with UI
-npm run test:ui
-
-# Run in watch mode
-npm run test:watch
-```
-
-### Running Tests via Docker
-
-```bash
-# Run Python tests in Docker
-docker-compose run --rm archon-pyserver pytest
-
-# Run React tests in Docker
-docker-compose run --rm archon-ui npm test
-```
-
-## 📈 Coverage Goals
-
-| Component | Target Coverage | Critical Path Coverage |
-|-----------|----------------|----------------------|
-| Python Backend | 80% | 95% |
-| React Frontend | 80% | 90% |
-| MCP Tools | 90% | 100% |
-| API Endpoints | 85% | 95% |
-| Utilities | 95% | 100% |
-
 ## 🔄 Continuous Integration
 
 Our CI pipeline automatically runs tests on every push and pull request:
@@ -489,6 +431,14 @@ Our CI pipeline automatically runs tests on every push and pull request:
 3. **Integration Tests**: Verify component interactions
 4. **Coverage Reports**: Track and enforce coverage requirements
 5. **E2E Tests**: Validate critical user journeys
+6. **Performance Benchmarks**: Monitor for performance regressions
+7. **Security Scanning**: Check for vulnerabilities
+
+Tests are automatically run on:
+- Pull request creation
+- Commits to main branch
+- Nightly builds
+- Manual trigger from UI
 
 ## 🛠️ Testing Tools & Frameworks
 
@@ -496,30 +446,21 @@ Our CI pipeline automatically runs tests on every push and pull request:
 - **pytest**: Testing framework
 - **pytest-asyncio**: Async test support
 - **pytest-mock**: Mocking utilities
+- **pytest-cov**: Coverage reporting
+- **pytest-timeout**: Test timeout management
 - **httpx**: Async HTTP testing
 - **coverage.py**: Code coverage
 
 ### Frontend (React)
-- **Vitest**: Test runner and framework
+- **Vitest**: Fast unit test runner
 - **React Testing Library**: Component testing
 - **MSW**: API mocking
-- **@testing-library/user-event**: User interaction simulation
 - **Playwright**: E2E testing
+- **@vitest/ui**: Interactive test UI
 
-## 📚 Best Practices
+## 📚 Additional Resources
 
-1. **Write Tests First**: Follow TDD when implementing new features
-2. **Test Behavior, Not Implementation**: Focus on what the code does, not how
-3. **Keep Tests Simple**: Each test should verify one thing
-4. **Use Descriptive Names**: Test names should explain what is being tested
-5. **Mock External Dependencies**: Keep tests fast and deterministic
-6. **Regular Test Maintenance**: Update tests when requirements change
-
----
-
-**Next Steps:**
-- Deep dive into [Python Testing Strategy](./testing-python-strategy) for backend testing details
-- Explore [Vitest Testing Strategy](./testing-vitest-strategy) for frontend testing patterns
-- Learn about [Deployment](./deployment) for CI/CD setup
-- Check [API Reference](./api-reference) for endpoint documentation
->>>>>>> origin/main
+- [Pytest Documentation](https://docs.pytest.org/)
+- [Vitest Documentation](https://vitest.dev/)
+- [Testing Best Practices](./PYTEST_BEST_PRACTICES_REVIEW.md)
+- [Test Style Guide](./TEST_STYLE_GUIDE.md)
