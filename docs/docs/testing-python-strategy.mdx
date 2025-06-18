@@ -278,10 +278,26 @@ test_project = (ProjectBuilder()
     .build())
 ```
 
-<<<<<<< HEAD
 ### 4. Domain-Specific Assertions
-=======
-### 4. WebSocket Testing
+
+```python
+# tests/fixtures/test_helpers.py
+def assert_valid_project_state(project: Dict[str, Any]) -> None:
+    """Assert project is in a valid state."""
+    assert_valid_uuid(project['id'], "Project ID")
+    assert project.get('title', '').strip(), "Project title cannot be empty"
+    assert project.get('status') in ['active', 'archived', 'draft']
+    assert project['created_at'] <= project['updated_at']
+
+def assert_task_hierarchy_valid(tasks: List[Dict[str, Any]]) -> None:
+    """Assert task parent-child relationships are valid."""
+    task_ids = {t['id'] for t in tasks}
+    for task in tasks:
+        if task.get('parent_task_id'):
+            assert task['parent_task_id'] in task_ids
+```
+
+### 5. WebSocket Testing
 
 ```python
 # tests/integration/test_websockets/test_task_updates.py
@@ -384,24 +400,55 @@ class TestCrawlProgressWebSocket:
             assert data["data"]["chunksStored"] == 50
 ```
 
-### 5. Fixture Best Practices
->>>>>>> origin/dev
+### 6. Fixture Best Practices
 
 ```python
-# tests/fixtures/test_helpers.py
-def assert_valid_project_state(project: Dict[str, Any]) -> None:
-    """Assert project is in a valid state."""
-    assert_valid_uuid(project['id'], "Project ID")
-    assert project.get('title', '').strip(), "Project title cannot be empty"
-    assert project.get('status') in ['active', 'archived', 'draft']
-    assert project['created_at'] <= project['updated_at']
+# tests/conftest.py
+import pytest
+from typing import Generator, AsyncGenerator
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
+from src.database import async_session_maker
 
-def assert_task_hierarchy_valid(tasks: List[Dict[str, Any]]) -> None:
-    """Assert task parent-child relationships are valid."""
-    task_ids = {t['id'] for t in tasks}
-    for task in tasks:
-        if task.get('parent_task_id'):
-            assert task['parent_task_id'] in task_ids
+@pytest.fixture(scope="session")
+def anyio_backend():
+    """Configure async backend for tests."""
+    return "asyncio"
+
+@pytest.fixture
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """Provide transactional database session for tests."""
+    async with async_session_maker() as session:
+        async with session.begin():
+            yield session
+            await session.rollback()
+
+@pytest.fixture
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """Create test client with database session."""
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        # Override dependency to use test database session
+        app.dependency_overrides[get_db] = lambda: db_session
+        yield ac
+        app.dependency_overrides.clear()
+
+@pytest.fixture
+def mock_websocket_manager():
+    """Mock WebSocket connection manager."""
+    manager = AsyncMock()
+    manager.connect = AsyncMock()
+    manager.disconnect = AsyncMock()
+    manager.broadcast = AsyncMock()
+    return manager
+
+@pytest.fixture(autouse=True)
+def reset_singletons():
+    """Reset singleton instances between tests."""
+    # Reset any singleton instances
+    PromptService._instance = None
+    yield
+    # Cleanup after test
+    PromptService._instance = None
 ```
 
 ## 🧪 Test Categories by Priority
