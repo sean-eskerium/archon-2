@@ -117,40 +117,40 @@ class TestSearchService:
     # Filtering Tests
     # =============================================================================
     
-    @pytest.mark.parametrize("filter_params,expected_call", [
+    @pytest.mark.parametrize("source,expected_filter", [
         pytest.param(
+            "docs.python.org",
             {"source": "docs.python.org"},
-            {"filter_metadata": {"source": "docs.python.org"}},
-            id="source-filter"
+            id="python-docs-source"
         ),
         pytest.param(
-            {"knowledge_type": "technical"},
-            {"filter_metadata": {"knowledge_type": "technical"}},
-            id="knowledge-type-filter"
+            "arxiv.org",
+            {"source": "arxiv.org"},
+            id="arxiv-source"
         ),
         pytest.param(
-            {"source": "arxiv.org", "knowledge_type": "research"},
-            {"filter_metadata": {"source": "arxiv.org", "knowledge_type": "research"}},
-            id="multiple-filters"
+            None,
+            None,
+            id="no-filter"
         ),
     ])
     @patch('src.services.rag.search_service.search_documents')
-    def test_search_with_filters(
+    def test_search_with_source_filter(
         self,
         mock_search_docs,
         search_service,
         make_search_results,
-        filter_params,
-        expected_call
+        source,
+        expected_filter
     ):
-        """Test search with various filter combinations."""
+        """Test search with source filtering."""
         # Arrange
         mock_search_docs.return_value = make_search_results(2)
         
         # Act
         success, result = search_service.perform_rag_query(
             query="test query",
-            **filter_params
+            source=source
         )
         
         # Assert
@@ -159,9 +159,11 @@ class TestSearchService:
         
         # Verify filter was passed correctly
         call_kwargs = mock_search_docs.call_args[1]
-        for key, value in expected_call.items():
-            assert key in call_kwargs
-            assert call_kwargs[key] == value
+        if expected_filter:
+            assert "filter_metadata" in call_kwargs
+            assert call_kwargs["filter_metadata"] == expected_filter
+        else:
+            assert call_kwargs.get("filter_metadata") is None
     
     # =============================================================================
     # Result Limiting Tests

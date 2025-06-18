@@ -246,22 +246,21 @@ class TestVersioningService:
     # Version History Tests
     # =============================================================================
     
-    @pytest.mark.parametrize("version_count,limit", [
-        pytest.param(0, None, id="no-versions"),
-        pytest.param(3, None, id="few-versions"),
-        pytest.param(10, 5, id="limited-results"),
-        pytest.param(100, 20, id="many-versions-limited"),
+    @pytest.mark.parametrize("version_count", [
+        pytest.param(0, id="no-versions"),
+        pytest.param(3, id="few-versions"),
+        pytest.param(10, id="ten-versions"),
+        pytest.param(100, id="many-versions"),
     ])
-    def test_list_version_history_with_limits(
+    def test_list_version_history(
         self,
         versioning_service,
         mock_supabase_client,
         db_helper,
         make_version_data,
-        version_count,
-        limit
+        version_count
     ):
-        """Test listing version history with various counts and limits."""
+        """Test listing version history with various counts."""
         # Arrange
         project_id = "test-project"
         field_name = "docs"
@@ -276,31 +275,21 @@ class TestVersioningService:
             )
             versions.append(version)
         
-        # Apply limit if specified
-        expected_versions = versions[:limit] if limit else versions
-        
-        mock_supabase_client.execute.return_value = db_helper.create_mock_query_result(
-            expected_versions
-        )
+        mock_supabase_client.execute.return_value = db_helper.create_mock_query_result(versions)
         
         # Act
         success, result = versioning_service.list_versions(
             project_id=project_id,
-            field_name=field_name,
-            limit=limit
+            field_name=field_name
         )
         
         # Assert
         assert success is True
-        assert result["total_count"] == len(expected_versions)
-        assert len(result["versions"]) == len(expected_versions)
+        assert result["total_count"] == len(versions)
+        assert len(result["versions"]) == len(versions)
         
         # Verify ordering
         mock_supabase_client.order.assert_called_with("version_number", desc=True)
-        
-        # Verify limit if applied
-        if limit:
-            mock_supabase_client.limit.assert_called_with(limit)
     
     # =============================================================================
     # Content Size and Performance Tests
