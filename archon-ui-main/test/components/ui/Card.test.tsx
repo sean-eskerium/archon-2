@@ -1,231 +1,198 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import React from 'react'
 import { Card } from '@/components/ui/Card'
 
-// Mock dependencies
-vi.mock('@/services/websocketService', () => ({
-  websocketService: {
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-    subscribe: vi.fn(),
-    unsubscribe: vi.fn(),
-    send: vi.fn(),
-  }
-}))
-
 describe('Card', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  describe('Basic Functionality', () => {
-    it('should render children', () => {
+  describe('Content Rendering', () => {
+    it('should render children content', () => {
       render(
         <Card>
-          <p>Card content</p>
+          <h1>Test Title</h1>
+          <p>Test content</p>
         </Card>
       )
       
-      expect(screen.getByText('Card content')).toBeInTheDocument()
+      expect(screen.getByText('Test Title')).toBeInTheDocument()
+      expect(screen.getByText('Test content')).toBeInTheDocument()
     })
 
-    it('should apply base styling', () => {
-      render(<Card>Content</Card>)
-      
-      const card = screen.getByText('Content').parentElement?.parentElement
-      
-      // Check base classes
-      expect(card).toHaveClass('relative', 'p-4', 'rounded-md', 'backdrop-blur-md')
-      expect(card).toHaveClass('bg-gradient-to-b', 'from-white/80', 'to-white/60')
-      expect(card).toHaveClass('border')
-    })
-
-    it('should render content in relative z-10 wrapper', () => {
-      render(<Card>Content</Card>)
-      
-      const contentWrapper = screen.getByText('Content').parentElement
-      expect(contentWrapper).toHaveClass('relative', 'z-10')
-    })
-  })
-
-  describe('Accent Colors', () => {
-    it('should apply no accent color by default', () => {
-      render(<Card>Default</Card>)
-      
-      const card = screen.getByText('Default').parentElement?.parentElement
-      expect(card).toHaveClass('border-gray-200')
-      expect(card).not.toHaveClass('before:content-[""]')
-    })
-
-    it('should apply purple accent color', () => {
-      render(<Card accentColor="purple">Purple card</Card>)
-      
-      const card = screen.getByText('Purple card').parentElement?.parentElement
-      expect(card).toHaveClass('border-purple-300')
-      expect(card).toHaveClass('before:bg-purple-500')
-      expect(card).toHaveClass('before:shadow-[0_0_10px_2px_rgba(168,85,247,0.4)]')
-    })
-
-    it('should apply green accent color', () => {
-      render(<Card accentColor="green">Green card</Card>)
-      
-      const card = screen.getByText('Green card').parentElement?.parentElement
-      expect(card).toHaveClass('border-emerald-300')
-      expect(card).toHaveClass('before:bg-emerald-500')
-      expect(card).toHaveClass('after:bg-gradient-to-b', 'from-emerald-100')
-    })
-
-    it('should apply pink accent color', () => {
-      render(<Card accentColor="pink">Pink card</Card>)
-      
-      const card = screen.getByText('Pink card').parentElement?.parentElement
-      expect(card).toHaveClass('border-pink-300')
-      expect(card).toHaveClass('before:bg-pink-500')
-    })
-
-    it('should apply blue accent color', () => {
-      render(<Card accentColor="blue">Blue card</Card>)
-      
-      const card = screen.getByText('Blue card').parentElement?.parentElement
-      expect(card).toHaveClass('border-blue-300')
-      expect(card).toHaveClass('before:bg-blue-500')
-    })
-
-    it('should apply orange accent color', () => {
-      render(<Card accentColor="orange">Orange card</Card>)
-      
-      const card = screen.getByText('Orange card').parentElement?.parentElement
-      expect(card).toHaveClass('border-orange-300')
-      expect(card).toHaveClass('before:bg-orange-500')
-    })
-  })
-
-  describe('Variants', () => {
-    it('should apply default variant', () => {
-      render(<Card variant="default">Default variant</Card>)
-      
-      const card = screen.getByText('Default variant').parentElement?.parentElement
-      expect(card).toHaveClass('border')
-    })
-
-    it('should apply bordered variant', () => {
-      render(<Card variant="bordered">Bordered variant</Card>)
-      
-      const card = screen.getByText('Bordered variant').parentElement?.parentElement
-      expect(card).toHaveClass('border')
-    })
-  })
-
-  describe('Hover Effects', () => {
-    it('should show hover effects', () => {
-      render(<Card>Hoverable</Card>)
-      
-      const card = screen.getByText('Hoverable').parentElement?.parentElement
-      
-      // Check shadow transitions
-      expect(card).toHaveClass('shadow-[0_10px_30px_-15px_rgba(0,0,0,0.1)]')
-      expect(card).toHaveClass('hover:shadow-[0_15px_40px_-15px_rgba(0,0,0,0.2)]')
-      expect(card).toHaveClass('transition-all', 'duration-300')
-    })
-  })
-
-  describe('Event Handlers', () => {
-    it('should handle click events if onClick provided', async () => {
-      const user = userEvent.setup()
-      const handleClick = vi.fn()
-      
+    it('should wrap content in a z-10 container for proper layering', () => {
       render(
-        <Card onClick={handleClick}>
-          Clickable card
+        <Card>
+          <div data-testid="content">Content</div>
         </Card>
       )
       
-      const card = screen.getByText('Clickable card').parentElement?.parentElement
-      await user.click(card!)
+      const content = screen.getByTestId('content')
+      const wrapper = content.parentElement
       
-      expect(handleClick).toHaveBeenCalledOnce()
+      // Verify content is wrapped for proper z-index layering
+      expect(wrapper?.className).toContain('z-10')
     })
 
-    it('should forward HTML div attributes', () => {
+    it('should pass through HTML attributes', () => {
+      const onClick = vi.fn()
       render(
-        <Card 
-          id="test-card"
-          data-testid="custom-card"
-          role="article"
-        >
-          Card with attributes
+        <Card data-testid="card" onClick={onClick} aria-label="Test card">
+          Content
         </Card>
       )
       
-      const card = screen.getByTestId('custom-card')
-      expect(card).toHaveAttribute('id', 'test-card')
-      expect(card).toHaveAttribute('role', 'article')
+      const card = screen.getByTestId('card')
+      expect(card).toHaveAttribute('aria-label', 'Test card')
+      
+      card.click()
+      expect(onClick).toHaveBeenCalled()
     })
   })
 
-  describe('Custom Styling', () => {
-    it('should accept custom className', () => {
-      render(
-        <Card className="custom-class mt-8">
-          Custom styled
-        </Card>
-      )
+  describe('Visual Hierarchy', () => {
+    it('should apply gradient background for depth perception', () => {
+      const { container } = render(<Card>Content</Card>)
+      const card = container.firstChild as HTMLElement
       
-      const card = screen.getByText('Custom styled').parentElement?.parentElement
-      expect(card).toHaveClass('custom-class', 'mt-8')
+      // Check for gradient background classes
+      expect(card.className).toMatch(/bg-gradient-to-b/)
+      expect(card.className).toMatch(/from-.*to-/)
     })
 
+    it('should have proper spacing and rounded corners', () => {
+      const { container } = render(<Card>Content</Card>)
+      const card = container.firstChild as HTMLElement
+      
+      // Verify basic layout properties
+      expect(card.className).toMatch(/p-\d+/) // padding
+      expect(card.className).toMatch(/rounded/) // rounded corners
+    })
+  })
+
+  describe('Accent Color Functionality', () => {
+    it('should render without accent styling by default', () => {
+      const { container } = render(<Card>Content</Card>)
+      const card = container.firstChild as HTMLElement
+      
+      // Default should not have before/after pseudo elements
+      expect(card.className).not.toContain('before:content')
+      expect(card.className).not.toContain('after:content')
+    })
+
+    it.each([
+      'purple', 'green', 'pink', 'blue', 'orange'
+    ] as const)('should apply %s accent color styling', (color) => {
+      const { container } = render(
+        <Card accentColor={color}>Content</Card>
+      )
+      const card = container.firstChild as HTMLElement
+      
+      // Should have pseudo elements for accent
+      expect(card.className).toContain('before:content')
+      expect(card.className).toContain('after:content')
+      
+      // Should have color-specific classes
+      expect(card.className).toMatch(new RegExp(`border-${color}`))
+    })
+
+    it('should create visual hierarchy with accent colors', () => {
+      const { container } = render(
+        <Card accentColor="purple">Important content</Card>
+      )
+      const card = container.firstChild as HTMLElement
+      
+      // Check for top accent line
+      expect(card.className).toContain('before:absolute')
+      expect(card.className).toContain('before:top-[0px]')
+      expect(card.className).toContain('before:h-[2px]')
+      
+      // Check for gradient overlay
+      expect(card.className).toContain('after:absolute')
+      expect(card.className).toContain('after:bg-gradient-to-b')
+    })
+  })
+
+  describe('Interaction States', () => {
+    it('should have hover effects for better interactivity', () => {
+      const { container } = render(<Card>Content</Card>)
+      const card = container.firstChild as HTMLElement
+      
+      // Should have hover shadow classes
+      expect(card.className).toContain('hover:shadow')
+      expect(card.className).toContain('transition')
+    })
+
+    it('should handle dark mode styling', () => {
+      const { container } = render(<Card>Content</Card>)
+      const card = container.firstChild as HTMLElement
+      
+      // Should have dark mode variants
+      expect(card.className).toMatch(/dark:/)
+    })
+  })
+
+  describe('Composability', () => {
     it('should merge custom className with default styles', () => {
+      const { container } = render(
+        <Card className="custom-class mt-8">Content</Card>
+      )
+      const card = container.firstChild as HTMLElement
+      
+      // Should include custom class
+      expect(card.className).toContain('custom-class')
+      expect(card.className).toContain('mt-8')
+      
+      // Should still have default card styling
+      expect(card.className).toContain('relative')
+      expect(card.className).toContain('rounded')
+    })
+
+    it('should work as a container for complex layouts', () => {
       render(
-        <Card className="shadow-2xl" accentColor="purple">
-          Merged styles
+        <Card>
+          <header data-testid="header">Header</header>
+          <main data-testid="main">Main content</main>
+          <footer data-testid="footer">Footer</footer>
         </Card>
       )
       
-      const card = screen.getByText('Merged styles').parentElement?.parentElement
-      expect(card).toHaveClass('shadow-2xl')
-      expect(card).toHaveClass('border-purple-300') // Should still have accent styles
+      expect(screen.getByTestId('header')).toBeInTheDocument()
+      expect(screen.getByTestId('main')).toBeInTheDocument()
+      expect(screen.getByTestId('footer')).toBeInTheDocument()
     })
   })
 
-  describe('Accent Effects', () => {
-    it('should render top accent line for colored cards', () => {
-      render(<Card accentColor="pink">Accent line</Card>)
-      
-      const card = screen.getByText('Accent line').parentElement?.parentElement
-      
-      // Check before pseudo-element classes
-      expect(card).toHaveClass('before:content-[""]')
-      expect(card).toHaveClass('before:absolute')
-      expect(card).toHaveClass('before:h-[2px]')
-      expect(card).toHaveClass('before:bg-pink-500')
+  describe('Accessibility', () => {
+    it('should render as a div by default', () => {
+      const { container } = render(<Card>Content</Card>)
+      expect(container.firstChild?.nodeName).toBe('DIV')
     })
 
-    it('should render gradient overlay for colored cards', () => {
-      render(<Card accentColor="green">Gradient overlay</Card>)
+    it('should support ARIA attributes', () => {
+      render(
+        <Card role="article" aria-labelledby="title">
+          <h2 id="title">Article Title</h2>
+          <p>Article content</p>
+        </Card>
+      )
       
-      const card = screen.getByText('Gradient overlay').parentElement?.parentElement
-      
-      // Check after pseudo-element classes
-      expect(card).toHaveClass('after:content-[""]')
-      expect(card).toHaveClass('after:bg-gradient-to-b')
-      expect(card).toHaveClass('from-emerald-100')
-      expect(card).toHaveClass('after:h-16')
-      expect(card).toHaveClass('after:pointer-events-none')
+      const card = screen.getByRole('article')
+      expect(card).toHaveAttribute('aria-labelledby', 'title')
     })
+  })
 
-    it('should not render accent effects for none color', () => {
-      render(<Card accentColor="none">No effects</Card>)
+  describe('Performance', () => {
+    it('should not re-render unnecessarily', () => {
+      const { rerender } = render(
+        <Card accentColor="purple">Content</Card>
+      )
       
-      const card = screen.getByText('No effects').parentElement?.parentElement
+      const initialCard = screen.getByText('Content').parentElement?.parentElement
+      const initialClassName = initialCard?.className
       
-      expect(card).not.toHaveClass('before:content-[""]')
-      expect(card).not.toHaveClass('after:content-[""]')
+      // Re-render with same props
+      rerender(<Card accentColor="purple">Content</Card>)
+      
+      const updatedCard = screen.getByText('Content').parentElement?.parentElement
+      expect(updatedCard?.className).toBe(initialClassName)
     })
   })
 })

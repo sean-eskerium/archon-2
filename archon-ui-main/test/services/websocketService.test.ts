@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, test } from 'vitest'
 import type { Mock } from 'vitest'
-import { MockWebSocket } from '../setup'
 
 // Import after mocking WebSocket is set up in setup.ts
 import { WebSocketService, knowledgeWebSocket, crawlWebSocket, taskUpdateWebSocket } from '@/services/websocketService'
@@ -8,7 +7,7 @@ import type { TaskUpdateData } from '@/services/websocketService'
 
 describe('WebSocketService', () => {
   let service: WebSocketService
-  let mockWebSocket: MockWebSocket
+  let mockWebSocket: any
 
   beforeEach(() => {
     vi.clearAllMocks()
@@ -26,45 +25,55 @@ describe('WebSocketService', () => {
       service.connect(endpoint)
       
       // Get the created WebSocket instance
-      const connections = vi.mocked(MockWebSocket).mock.instances
-      expect(connections).toHaveLength(1)
-      mockWebSocket = connections[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      expect(WebSocketMock).toHaveBeenCalledTimes(1)
+      mockWebSocket = WebSocketMock.mock.results[0].value
       
       // Verify URL construction
       expect(mockWebSocket.url).toMatch(/ws:\/\/.*:8080\/api\/knowledge\/ws/)
     })
 
     it('should use wss protocol for https locations', () => {
-      Object.defineProperty(window.location, 'protocol', { value: 'https:', writable: true })
+      // Mock window.location
+      const originalLocation = window.location
+      delete (window as any).location
+      window.location = { ...originalLocation, protocol: 'https:' } as Location
       
       const endpoint = '/api/test/ws'
       service.connect(endpoint)
       
-      const connections = vi.mocked(MockWebSocket).mock.instances
-      mockWebSocket = connections[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
       
       expect(mockWebSocket.url).toMatch(/wss:\/\//)
+      
+      // Restore
+      window.location = originalLocation
     })
 
     it('should handle automatic reconnection after disconnect', async () => {
       vi.useFakeTimers()
       
       service.connect('/api/test/ws')
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[0].value
       
       // Simulate connection open
-      mockWebSocket.readyState = MockWebSocket.OPEN
+      mockWebSocket.readyState = WebSocket.OPEN
       mockWebSocket.onopen?.(new Event('open'))
       
+      // Clear previous calls
+      WebSocketMock.mockClear()
+      
       // Simulate unexpected close
-      mockWebSocket.readyState = MockWebSocket.CLOSED
+      mockWebSocket.readyState = WebSocket.CLOSED
       mockWebSocket.onclose?.(new CloseEvent('close'))
       
       // Advance timers to trigger reconnection
       await vi.advanceTimersByTimeAsync(1000)
       
       // Should create a new WebSocket connection
-      expect(vi.mocked(MockWebSocket).mock.instances).toHaveLength(2)
+      expect(WebSocketMock).toHaveBeenCalledTimes(1)
       
       vi.useRealTimers()
     })
@@ -74,20 +83,23 @@ describe('WebSocketService', () => {
       
       const maxAttempts = 5
       service.connect('/api/test/ws')
+      const WebSocketMock = global.WebSocket as unknown as Mock
       
       // Simulate multiple failed connections
       for (let i = 0; i < maxAttempts + 2; i++) {
-        const ws = vi.mocked(MockWebSocket).mock.instances[i] as unknown as MockWebSocket
-        ws.onclose?.(new CloseEvent('close'))
-        
-        // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-        if (i < maxAttempts) {
-          await vi.advanceTimersByTimeAsync(1000 * Math.pow(2, i))
+        if (i < WebSocketMock.mock.results.length) {
+          const ws = WebSocketMock.mock.results[i].value
+          ws.onclose?.(new CloseEvent('close'))
+          
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+          if (i < maxAttempts) {
+            await vi.advanceTimersByTimeAsync(1000 * Math.pow(2, i))
+          }
         }
       }
       
       // Should only create maxAttempts + 1 connections (initial + retries)
-      expect(vi.mocked(MockWebSocket).mock.instances).toHaveLength(maxAttempts + 1)
+      expect(WebSocketMock).toHaveBeenCalledTimes(maxAttempts + 1)
       
       vi.useRealTimers()
     })
@@ -96,8 +108,9 @@ describe('WebSocketService', () => {
   describe('message handling', () => {
     beforeEach(() => {
       service.connect('/api/test/ws')
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
-      mockWebSocket.readyState = MockWebSocket.OPEN
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
+      mockWebSocket.readyState = WebSocket.OPEN
     })
 
     test.each([
@@ -160,8 +173,9 @@ describe('WebSocketService', () => {
       service.addEventListener('test', listener2)
       
       service.connect('/api/test/ws')
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
-      mockWebSocket.readyState = MockWebSocket.OPEN
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
+      mockWebSocket.readyState = WebSocket.OPEN
       
       // Send message
       const message = { type: 'test', data: 'hello' }
@@ -196,7 +210,8 @@ describe('WebSocketService', () => {
       service.addEventListener('test', normalListener)
       
       service.connect('/api/test/ws')
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
       
       const message = { type: 'test', data: 'test' }
       mockWebSocket.onmessage?.(new MessageEvent('message', {
@@ -215,11 +230,12 @@ describe('WebSocketService', () => {
   describe('sending messages', () => {
     beforeEach(() => {
       service.connect('/api/test/ws')
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
     })
 
     it('should send messages when connection is open', () => {
-      mockWebSocket.readyState = MockWebSocket.OPEN
+      mockWebSocket.readyState = WebSocket.OPEN
       
       const data = { action: 'update', id: 123 }
       service.send(data)
@@ -228,9 +244,9 @@ describe('WebSocketService', () => {
     })
 
     test.each([
-      MockWebSocket.CONNECTING,
-      MockWebSocket.CLOSING,
-      MockWebSocket.CLOSED,
+      WebSocket.CONNECTING,
+      WebSocket.CLOSING,
+      WebSocket.CLOSED,
     ])('should not send messages when readyState is %s', (readyState: number) => {
       mockWebSocket.readyState = readyState
       
@@ -254,7 +270,8 @@ describe('WebSocketService', () => {
       service.addEventListener('test', listener)
       
       service.connect('/api/test/ws')
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
       
       service.disconnect()
       
@@ -273,7 +290,8 @@ describe('WebSocketService', () => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
       
       service.connect('/api/test/ws')
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
       
       const error = new Event('error')
       mockWebSocket.onerror?.(error)
@@ -284,7 +302,7 @@ describe('WebSocketService', () => {
 })
 
 describe('TaskUpdateService', () => {
-  let mockWebSocket: MockWebSocket
+  let mockWebSocket: any
   const projectId = 'test-project-123'
 
   beforeEach(() => {
@@ -302,7 +320,8 @@ describe('TaskUpdateService', () => {
       const callbacks = { onConnectionEstablished: vi.fn() }
       
       taskUpdateWebSocket.connect(projectId, callbacks)
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
       
       expect(mockWebSocket.url).toMatch(/session_id=task-session-/)
     })
@@ -312,7 +331,8 @@ describe('TaskUpdateService', () => {
       const callbacks = { onConnectionEstablished: vi.fn() }
       
       taskUpdateWebSocket.connect(projectId, callbacks, sessionId)
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
       
       expect(mockWebSocket.url).toContain(`session_id=${sessionId}`)
     })
@@ -322,8 +342,9 @@ describe('TaskUpdateService', () => {
       
       // First connection
       taskUpdateWebSocket.connect(projectId, callbacks)
-      const firstWs = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
-      firstWs.readyState = MockWebSocket.OPEN
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      const firstWs = WebSocketMock.mock.results[0].value
+      firstWs.readyState = WebSocket.OPEN
       
       // Second connection
       taskUpdateWebSocket.connect('another-project', callbacks)
@@ -335,8 +356,9 @@ describe('TaskUpdateService', () => {
   describe('message type handling', () => {
     const setupConnection = () => {
       taskUpdateWebSocket.connect(projectId, {})
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[vi.mocked(MockWebSocket).mock.instances.length - 1] as unknown as MockWebSocket
-      mockWebSocket.readyState = MockWebSocket.OPEN
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
+      mockWebSocket.readyState = WebSocket.OPEN
     }
 
     test.each([
@@ -381,7 +403,8 @@ describe('TaskUpdateService', () => {
       }
       
       taskUpdateWebSocket.connect(projectId, callbacks)
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[vi.mocked(MockWebSocket).mock.instances.length - 1] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[WebSocketMock.mock.results.length - 1].value
       
       const message: TaskUpdateData = {
         type: type as any,
@@ -428,7 +451,11 @@ describe('TaskUpdateService', () => {
       vi.useFakeTimers()
       
       taskUpdateWebSocket.connect(projectId, {})
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[0].value
+      
+      // Clear the mock to track new calls
+      WebSocketMock.mockClear()
       
       // Simulate clean disconnect
       const closeEvent = new CloseEvent('close', {
@@ -440,7 +467,7 @@ describe('TaskUpdateService', () => {
       vi.advanceTimersByTime(10000)
       
       // Should not create new connections
-      expect(vi.mocked(MockWebSocket).mock.instances).toHaveLength(1)
+      expect(WebSocketMock).not.toHaveBeenCalled()
       
       vi.useRealTimers()
     })
@@ -449,19 +476,22 @@ describe('TaskUpdateService', () => {
       vi.useFakeTimers()
       
       taskUpdateWebSocket.connect(projectId, {})
+      const WebSocketMock = global.WebSocket as unknown as Mock
       
       // Simulate 4 failed connections (initial + 3 retries)
       for (let i = 0; i < 4; i++) {
-        const ws = vi.mocked(MockWebSocket).mock.instances[i] as unknown as MockWebSocket
-        ws.onclose?.(new CloseEvent('close', { code: 1006 }))
-        
-        if (i < 3) {
-          await vi.advanceTimersByTimeAsync(5000)
+        if (i < WebSocketMock.mock.results.length) {
+          const ws = WebSocketMock.mock.results[i].value
+          ws.onclose?.(new CloseEvent('close', { code: 1006 }))
+          
+          if (i < 3) {
+            await vi.advanceTimersByTimeAsync(5000)
+          }
         }
       }
       
       // Should only create 4 connections total
-      expect(vi.mocked(MockWebSocket).mock.instances).toHaveLength(4)
+      expect(WebSocketMock).toHaveBeenCalledTimes(4)
       
       vi.useRealTimers()
     })
@@ -472,15 +502,16 @@ describe('TaskUpdateService', () => {
       expect(taskUpdateWebSocket.isConnected()).toBe(false)
       
       taskUpdateWebSocket.connect(projectId, {})
-      mockWebSocket = vi.mocked(MockWebSocket).mock.instances[0] as unknown as MockWebSocket
+      const WebSocketMock = global.WebSocket as unknown as Mock
+      mockWebSocket = WebSocketMock.mock.results[0].value
       
-      mockWebSocket.readyState = MockWebSocket.CONNECTING
+      mockWebSocket.readyState = WebSocket.CONNECTING
       expect(taskUpdateWebSocket.isConnected()).toBe(false)
       
-      mockWebSocket.readyState = MockWebSocket.OPEN
+      mockWebSocket.readyState = WebSocket.OPEN
       expect(taskUpdateWebSocket.isConnected()).toBe(true)
       
-      mockWebSocket.readyState = MockWebSocket.CLOSED
+      mockWebSocket.readyState = WebSocket.CLOSED
       expect(taskUpdateWebSocket.isConnected()).toBe(false)
     })
   })
