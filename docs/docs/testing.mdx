@@ -120,7 +120,6 @@ archon-ui-main/
 
 ```
 python/
-<<<<<<< HEAD
 ├── tests/                   # Backend test suite
 │   ├── unit/                # Unit tests (235+ test cases)
 │   │   ├── test_agents/     # Agent tests (BaseAgent, DocumentAgent, RagAgent)
@@ -148,16 +147,6 @@ python/
 │   ├── pytest.ini          # Pytest settings
 │   ├── .coveragerc         # Coverage configuration
 │   └── run_tests.py        # Test runner with filtering
-=======
-├── tests/                    # Backend test suite
-│   ├── unit/                # Unit tests
-│   ├── integration/         # Integration tests
-│   ├── e2e/                 # End-to-end tests
-│   ├── performance/         # Performance tests
-│   ├── fixtures/            # Test data
-│   ├── conftest.py         # Pytest configuration
-│   └── pytest.ini         # Pytest settings
->>>>>>> origin/dev
 ├── src/                     # Application source code
 └── pyproject.toml          # Python project configuration
 ```
@@ -166,55 +155,6 @@ python/
 
 ### Frontend Vitest Configuration
 
-<<<<<<< HEAD
-```bash
-# Navigate to python directory
-cd python
-
-# Install dependencies using uv
-uv sync
-
-# Or install test dependencies manually
-uv pip install pytest pytest-asyncio pytest-cov pytest-timeout pytest-mock
-```
-
-### Running Backend Tests (Python)
-
-```bash
-# Run all tests using the test runner
-python tests/run_tests.py
-
-# Run tests by type
-python tests/run_tests.py --type unit
-python tests/run_tests.py --type integration
-python tests/run_tests.py --type e2e
-
-# Run tests by priority
-python tests/run_tests.py --priority critical
-python tests/run_tests.py --priority high
-python tests/run_tests.py --priority standard
-
-# Run with coverage report
-python tests/run_tests.py --coverage
-
-# Run specific test categories with pytest directly
-PYTHONPATH=/workspace/python pytest tests/unit/test_services/ -v
-PYTHONPATH=/workspace/python pytest tests/unit/test_api/ -v
-
-# Run tests with specific markers
-pytest -m "not slow"       # Skip slow tests
-pytest -m "critical"       # Run critical tests only
-pytest -m "websocket"      # Run WebSocket tests only
-
-# Run in watch mode (requires pytest-watch)
-ptw
-```
-
-### Running Frontend Tests (React)
-
-```bash
-# Navigate to UI directory
-=======
 ```typescript
 // vitest.config.ts
 export default defineConfig({
@@ -316,19 +256,30 @@ vi.mock('@/services/websocketService', () => ({
 }))
 ```
 
+### Backend Test Setup
+
+```bash
+# Navigate to python directory
+cd python
+
+# Install dependencies using uv
+uv sync
+
+# Or install test dependencies manually
+uv pip install pytest pytest-asyncio pytest-cov pytest-timeout pytest-mock
+```
+
 ## 🚀 Quick Start Commands
 
 ### Frontend Testing (React/Vitest)
 
 ```bash
 # Navigate to frontend directory
->>>>>>> origin/dev
 cd archon-ui-main
 
 # Run all tests
 npm test
 
-<<<<<<< HEAD
 # Run with coverage
 npm run test:coverage
 
@@ -337,6 +288,38 @@ npm run test:ui
 
 # Run in watch mode
 npm run test:watch
+```
+
+### Backend Testing (Python)
+
+```bash
+# Run all tests using the test runner
+python tests/run_tests.py
+
+# Run tests by type
+python tests/run_tests.py --type unit
+python tests/run_tests.py --type integration
+python tests/run_tests.py --type e2e
+
+# Run tests by priority
+python tests/run_tests.py --priority critical
+python tests/run_tests.py --priority high
+python tests/run_tests.py --priority standard
+
+# Run with coverage report
+python tests/run_tests.py --coverage
+
+# Run specific test categories with pytest directly
+PYTHONPATH=/workspace/python pytest tests/unit/test_services/ -v
+PYTHONPATH=/workspace/python pytest tests/unit/test_api/ -v
+
+# Run tests with specific markers
+pytest -m "not slow"       # Skip slow tests
+pytest -m "critical"       # Run critical tests only
+pytest -m "websocket"      # Run WebSocket tests only
+
+# Run in watch mode (requires pytest-watch)
+ptw
 ```
 
 ### Running Tests via Docker
@@ -358,7 +341,7 @@ The Archon UI Settings page provides a test runner interface that connects via W
 3. Select test type (Unit Tests or UI Tests)
 4. View real-time test output and results
 
-## 🔧 Test Configuration
+## 🔧 Test Configuration Details
 
 ### pytest.ini
 
@@ -498,285 +481,56 @@ def test_task_status_validation(status, expected):
 ### WebSocket Testing
 
 ```python
-async def test_websocket_connection(test_client):
-    """Test WebSocket connection and message handling."""
-    async with test_client.websocket_connect("/ws/test") as websocket:
-        # Send message
-        await websocket.send_json({"type": "ping"})
+@pytest.mark.asyncio
+async def test_websocket_task_updates(client: TestClient, test_project):
+    """Test WebSocket task update notifications."""
+    with client.websocket_connect(f"/api/projects/{test_project.id}/tasks/ws") as websocket:
+        # Should receive initial tasks
+        data = websocket.receive_json()
+        assert data["type"] == "initial_tasks"
         
-        # Receive response
-        response = await websocket.receive_json()
-        assert response["type"] == "pong"
+        # Simulate task update
+        await update_task_status(test_project.id, "task-1", "doing")
+        
+        # Should receive update notification
+        data = websocket.receive_json()
+        assert data["type"] == "tasks_updated"
+        assert data["data"]["updated_tasks"][0]["status"] == "doing"
 ```
 
-### Performance Testing
+## � Coverage Goals
 
-```python
-@pytest.mark.slow
-@pytest.mark.performance
-async def test_bulk_operation_performance(benchmark_service):
-    """Test performance of bulk operations."""
-    items = generate_test_items(1000)
-    
-    start_time = time.time()
-    results = await benchmark_service.bulk_process(items)
-    duration = time.time() - start_time
-    
-    assert len(results) == 1000
-    assert duration < 5.0  # Should complete within 5 seconds
-```
+- **Overall**: 80% minimum
+- **Critical Services**: 95% minimum  
+- **API Endpoints**: 90% minimum
+- **New Code**: 90%+ required
 
-## 📊 Coverage Goals
-
-| Component | Target Coverage | Critical Path Coverage |
-|-----------|----------------|----------------------|
-| Python Backend | 80% | 95% |
-| React Frontend | 80% | 90% |
-| MCP Tools | 90% | 100% |
-| API Endpoints | 85% | 95% |
-| Utilities | 95% | 100% |
-
-Current coverage can be viewed by running:
-```bash
-python tests/run_tests.py --coverage
-# HTML report available at htmlcov/index.html
-```
-
-## 🚨 Common Issues and Solutions
-
-### Python 3.13 Compatibility
-If you encounter OpenAI library compatibility issues with Python 3.13:
-```bash
-# Use Python 3.12
-uv python install 3.12
-uv venv --python 3.12
-uv sync
-```
-
-### Import Errors
-Ensure PYTHONPATH is set correctly:
-```bash
-export PYTHONPATH=/workspace/python
-# or
-PYTHONPATH=/workspace/python pytest tests/
-```
-
-### WebSocket Test Timeouts
-Increase timeout for WebSocket tests:
-```python
-@pytest.mark.timeout(30)  # 30 second timeout
-async def test_long_websocket_operation():
-    # test code
-```
-
-## 🔄 Continuous Integration
-
-Our CI pipeline automatically runs tests on every push and pull request:
-
-1. **Pre-commit Hooks**: Run linting and type checking
-2. **Unit Tests**: Fast feedback on component functionality
-3. **Integration Tests**: Verify component interactions
-4. **Coverage Reports**: Track and enforce coverage requirements
-5. **E2E Tests**: Validate critical user journeys
-6. **Performance Benchmarks**: Monitor for performance regressions
-7. **Security Scanning**: Check for vulnerabilities
-
-Tests are automatically run on:
-- Pull request creation
-- Commits to main branch
-- Nightly builds
-- Manual trigger from UI
-
-## 🛠️ Testing Tools & Frameworks
-
-### Backend (Python)
-- **pytest**: Testing framework
-- **pytest-asyncio**: Async test support
-- **pytest-mock**: Mocking utilities
-- **pytest-cov**: Coverage reporting
-- **pytest-timeout**: Test timeout management
-- **httpx**: Async HTTP testing
-- **coverage.py**: Code coverage
-
-### Frontend (React)
-- **Vitest**: Fast unit test runner
-- **React Testing Library**: Component testing
-- **MSW**: API mocking
-- **Playwright**: E2E testing
-- **@vitest/ui**: Interactive test UI
-
-## 📚 Additional Resources
-
-- [Pytest Documentation](https://docs.pytest.org/)
-- [Vitest Documentation](https://vitest.dev/)
-- [Testing Best Practices](./PYTEST_BEST_PRACTICES_REVIEW.md)
-- [Test Style Guide](./TEST_STYLE_GUIDE.md)
-=======
-# Run tests with coverage and results generation
-npm run test:coverage
-
-# Run tests in watch mode
-npm test -- --watch
-
-# Run tests with UI
-npm run test:ui
-
-# Run specific test file
-npm test -- Button.test.tsx
-
-# Run tests matching pattern
-npm test -- --grep "should handle"
-```
-
-### Backend Testing (Python/Pytest)
+## � Debugging Tests
 
 ```bash
-# Navigate to backend directory
-cd python
+# Run with debugger
+pytest --pdb  # Drop into debugger on failure
 
-# Run all tests
-pytest
+# Show local variables
+pytest -l
 
-# Run with coverage
-pytest --cov=src --cov-report=html
+# Run last failed
+pytest --lf
 
-# Run specific test categories
-pytest -m "unit"
-pytest -m "integration"
-pytest -m "mcp"
+# Run failed first
+pytest --ff
+
+# Maximum verbosity
+pytest -vv
+
+# Show print statements
+pytest -s
 ```
 
-### Docker Testing
+## � CI/CD Integration
 
-```bash
-# Run frontend tests in Docker
-docker exec -it archon-frontend-1 npm run test:coverage
-
-# Run backend tests in Docker
-docker exec -it archon-pyserver pytest --cov=src
-```
-
-## 📊 Coverage Goals & Current Status
-
-| Component | Target Coverage | Critical Path Coverage | Implementation Status |
-|-----------|----------------|----------------------|---------------------|
-| React Components | 80% | 90% | 🔴 15% (In Progress) |
-| Services | 85% | 95% | 🔴 25% (In Progress) |
-| Pages | 80% | 90% | 🟡 75% (Good Progress) |
-| Hooks | 90% | 95% | 🔴 0% (Not Started) |
-| Utils | 95% | 100% | 🔴 0% (Not Started) |
-| **Overall Frontend** | **80%** | **90%** | **🔴 15%** |
-
-### Test Implementation Progress
-
-- **Total Test Files Planned**: 68
-- **Already Implemented**: 7 files ✅
-- **To Be Implemented**: 61 files 📝
-- **Total Test Cases**: ~465
-
-## 🔄 Test Execution Environments
-
-### 1. Local Development
-- **Command Line**: Direct npm/pytest execution
-- **IDE Integration**: VS Code test runner support
-- **Watch Mode**: Automatic re-execution on file changes
-
-### 2. UI Test Runner (Settings Page)
-- **Visual Interface**: Click-to-run test execution
-- **Real-time Output**: Streaming test results
-- **Coverage Integration**: Automatic HTML report generation
-- **Test Results Modal**: Comprehensive health dashboard
-
-### 3. Docker Environment
-- **Isolated Execution**: Consistent environment across machines
-- **Production-like**: Tests run in containerized environment
-- **CI/CD Ready**: Same environment as deployment
-
-### 4. Continuous Integration
-- **GitHub Actions**: Automated test execution on PRs
-- **Coverage Reporting**: Automatic coverage upload
-- **Quality Gates**: Failed tests block merges
-
-## 🛠️ WebSocket Testing Strategy
-
-WebSocket functionality is critical to Archon's real-time features. Our testing approach:
-
-### **Safety First**
-- **Never create real WebSocket connections** in tests
-- **Always mock** the websocketService module
-- **Clean up subscriptions** in afterEach hooks
-- **Avoid function references** in useCallback dependencies
-
-### **Mock Implementation**
-```typescript
-// Enhanced WebSocket mocking
-vi.mock('@/services/websocketService', () => ({
-  websocketService: {
-    connect: vi.fn().mockResolvedValue(undefined),
-    disconnect: vi.fn(),
-    subscribe: vi.fn().mockReturnValue(vi.fn()),
-    send: vi.fn(),
-    getConnectionState: vi.fn().mockReturnValue('connected')
-  }
-}))
-```
-
-### **Testing Patterns**
-- Test connection establishment
-- Test message handling
-- Test reconnection logic
-- Test error scenarios
-- Test cleanup and disconnection
-
-## 🎯 Quality Assurance Checklist
-
-### Before Committing Code
-
-- [ ] All tests pass locally
-- [ ] Coverage meets minimum thresholds
-- [ ] No console errors in test output
-- [ ] WebSocket mocks are properly implemented
-- [ ] Test names are descriptive and clear
-
-### For New Features
-
-- [ ] Unit tests for core functionality
-- [ ] Integration tests for user workflows
-- [ ] Error scenario testing
-- [ ] Accessibility testing
-- [ ] Performance impact assessment
-
-### For Bug Fixes
-
-- [ ] Regression test added
-- [ ] Root cause identified and tested
-- [ ] Edge cases covered
-- [ ] Documentation updated if needed
-
-## 📚 Best Practices Summary
-
-1. **User-Centric Testing**: Test from the user's perspective, not implementation details
-2. **Test Isolation**: Each test should be independent and repeatable
-3. **Mock External Dependencies**: Keep tests fast and deterministic
-4. **Descriptive Test Names**: Clearly describe what is being tested
-5. **WebSocket Safety**: Always mock WebSocket connections in tests
-6. **Coverage Quality**: Focus on meaningful coverage, not just numbers
-7. **Regular Maintenance**: Update tests when requirements change
-8. **Documentation**: Keep test documentation current and accurate
-
-## 🔗 Related Documentation
-
-- **[Vitest Testing Strategy](./testing-vitest-strategy)** - Detailed frontend testing patterns
-- **[Python Testing Strategy](./testing-python-strategy)** - Backend testing guide
-- **[UI Documentation](./ui)** - Component documentation and guidelines
-- **[WebSocket Documentation](./websockets)** - Real-time communication patterns
-- **[API Reference](./api-reference)** - Backend API testing endpoints
-
----
-
-**Quick Links:**
-- 🚀 [Get Started with Testing](./testing-vitest-strategy#quick-start)
-- 📊 [View Test Coverage Reports](#coverage-goals--current-status)
-- 🎯 [UI Test Runner Guide](#ui-test-runner--results-dashboard)
-- 🔧 [Docker Testing Setup](#docker-testing)
->>>>>>> origin/dev
+Tests are automatically run in CI/CD pipelines with:
+- Pre-commit hooks for linting and type checking
+- Pull request checks requiring all tests to pass
+- Coverage reports uploaded to tracking services
+- Performance benchmarks compared against baselines
