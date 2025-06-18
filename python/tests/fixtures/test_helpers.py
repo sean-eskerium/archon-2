@@ -537,3 +537,320 @@ def parametrize_fixture(
     if hasattr(request, "param") and isinstance(request.param, dict):
         return request.param.get(param_name, default)
     return default
+
+
+# =============================================================================
+# Domain-Specific Assertions
+# =============================================================================
+
+def assert_valid_project_state(project: Dict[str, Any]) -> None:
+    """Assert project is in a valid state.
+    
+    Args:
+        project: Project dictionary to validate
+        
+    Raises:
+        AssertionError: If project state is invalid
+    """
+    assert_valid_uuid(project['id'], "Project ID")
+    assert project.get('title', '').strip(), "Project title cannot be empty"
+    assert project.get('status') in ['active', 'archived', 'draft'], \
+        f"Invalid project status: {project.get('status')}"
+    
+    # Validate timestamps
+    assert 'created_at' in project, "Project missing created_at timestamp"
+    assert 'updated_at' in project, "Project missing updated_at timestamp"
+    
+    # Ensure created_at <= updated_at
+    if isinstance(project['created_at'], str) and isinstance(project['updated_at'], str):
+        assert project['created_at'] <= project['updated_at'], \
+            "Project created_at must be before or equal to updated_at"
+
+
+def assert_task_hierarchy_valid(tasks: List[Dict[str, Any]]) -> None:
+    """Assert task parent-child relationships are valid.
+    
+    Args:
+        tasks: List of task dictionaries
+        
+    Raises:
+        AssertionError: If hierarchy is invalid
+    """
+    task_ids = {t['id'] for t in tasks}
+    task_by_id = {t['id']: t for t in tasks}
+    
+    for task in tasks:
+        # Check parent exists if specified
+        if task.get('parent_task_id'):
+            assert task['parent_task_id'] in task_ids, \
+                f"Parent task {task['parent_task_id']} not found for task {task['id']}"
+        
+        # Ensure no circular dependencies
+        visited = set()
+        current_id = task['id']
+        while current_id:
+            assert current_id not in visited, \
+                f"Circular dependency detected for task {task['id']}"
+            visited.add(current_id)
+            
+            # Find parent
+            parent = task_by_id.get(current_id)
+            current_id = parent.get('parent_task_id') if parent else None
+
+
+def assert_valid_task_state(task: Dict[str, Any]) -> None:
+    """Assert task is in a valid state.
+    
+    Args:
+        task: Task dictionary to validate
+        
+    Raises:
+        AssertionError: If task state is invalid
+    """
+    assert_valid_uuid(task['id'], "Task ID")
+    assert task.get('title', '').strip(), "Task title cannot be empty"
+    assert task.get('status') in ['todo', 'doing', 'review', 'done'], \
+        f"Invalid task status: {task.get('status')}"
+    
+    # Validate assignee if present
+    if 'assignee' in task and task['assignee']:
+        valid_assignees = ['User', 'Archon', 'AI IDE Agent']
+        assert task['assignee'] in valid_assignees or task['assignee'].startswith('user'), \
+            f"Invalid assignee: {task['assignee']}"
+    
+    # Validate timestamps
+    assert 'created_at' in task, "Task missing created_at timestamp"
+    assert 'updated_at' in task, "Task missing updated_at timestamp"
+
+
+def assert_valid_document_state(document: Dict[str, Any]) -> None:
+    """Assert document is in a valid state.
+    
+    Args:
+        document: Document dictionary to validate
+        
+    Raises:
+        AssertionError: If document state is invalid
+    """
+    assert_valid_uuid(document['id'], "Document ID")
+    assert document.get('title', '').strip(), "Document title cannot be empty"
+    assert 'content' in document, "Document missing content"
+    assert isinstance(document.get('version', 0), int) and document['version'] > 0, \
+        "Document version must be a positive integer"
+    
+    # Validate content structure
+    content = document['content']
+    if isinstance(content, dict):
+        assert 'type' in content, "Document content missing type"
+        assert 'text' in content or 'sections' in content, \
+            "Document content must have text or sections"
+
+
+def assert_websocket_message_valid(message: Dict[str, Any], expected_type: str = None) -> None:
+    """Assert WebSocket message is valid.
+    
+    Args:
+        message: WebSocket message dictionary
+        expected_type: Expected message type (optional)
+        
+    Raises:
+        AssertionError: If message is invalid
+    """
+    assert 'type' in message, "WebSocket message missing type"
+    assert 'data' in message, "WebSocket message missing data"
+    
+    if expected_type:
+        assert message['type'] == expected_type, \
+            f"Expected message type {expected_type}, got {message['type']}"
+    
+    # Validate common fields
+    if 'timestamp' in message:
+        assert isinstance(message['timestamp'], (str, float, int)), \
+            "Message timestamp must be string, float, or int"
+    
+    if 'project_id' in message['data']:
+        assert_valid_uuid(message['data']['project_id'], "Project ID in message")
+
+
+def assert_api_response_valid(response: Dict[str, Any], success: bool = True) -> None:
+    """Assert API response has valid structure.
+    
+    Args:
+        response: API response dictionary
+        success: Whether response should indicate success
+        
+    Raises:
+        AssertionError: If response structure is invalid
+    """
+    if success:
+        assert 'error' not in response or response['error'] is None, \
+            f"Unexpected error in successful response: {response.get('error')}"
+    else:
+        assert 'error' in response, "Error response missing error field"
+        assert isinstance(response['error'], str) and response['error'].strip(), \
+            "Error message must be a non-empty string"
+
+
+def assert_search_results_valid(results: List[Dict[str, Any]], min_score: float = 0.0) -> None:
+    """Assert search results are valid and properly ordered.
+    
+    Args:
+        results: List of search result dictionaries
+        min_score: Minimum acceptable score
+        
+    Raises:
+        AssertionError: If results are invalid
+    """
+    previous_score = float('inf')
+    
+    for i, result in enumerate(results):
+        assert 'content' in result, f"Result {i} missing content"
+        assert 'score' in result, f"Result {i} missing score"
+        assert isinstance(result['score'], (int, float)), f"Result {i} score must be numeric"
+        assert result['score'] >= min_score, \
+            f"Result {i} score {result['score']} below minimum {min_score}"
+        
+        # Verify descending score order
+        assert result['score'] <= previous_score, \
+            f"Results not properly ordered by score at index {i}"
+        previous_score = result['score']
+        
+        # Validate metadata if present
+        if 'metadata' in result:
+            assert isinstance(result['metadata'], dict), \
+                f"Result {i} metadata must be a dictionary"
+
+
+# =============================================================================
+# Performance Testing Helpers
+# =============================================================================
+
+class PerformanceTimer:
+    """Context manager for performance timing with assertions."""
+    
+    def __init__(self, operation: str, threshold: float = 1.0):
+        """Initialize performance timer.
+        
+        Args:
+            operation: Description of operation being timed
+            threshold: Maximum allowed duration in seconds
+        """
+        self.operation = operation
+        self.threshold = threshold
+        self.start_time = None
+        self.duration = None
+    
+    def __enter__(self):
+        """Start timing."""
+        self.start_time = time.perf_counter()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Stop timing and assert threshold."""
+        if self.start_time is not None:
+            self.duration = time.perf_counter() - self.start_time
+            
+            if exc_type is None:  # Only check if no exception occurred
+                assert self.duration < self.threshold, \
+                    f"{self.operation} took {self.duration:.3f}s, exceeded threshold of {self.threshold}s"
+
+
+def assert_performance_regression(current_time: float, baseline_time: float, 
+                                tolerance: float = 0.2) -> None:
+    """Assert no performance regression compared to baseline.
+    
+    Args:
+        current_time: Current execution time
+        baseline_time: Baseline execution time
+        tolerance: Acceptable performance degradation (0.2 = 20% slower allowed)
+        
+    Raises:
+        AssertionError: If performance regression detected
+    """
+    max_allowed = baseline_time * (1 + tolerance)
+    assert current_time <= max_allowed, \
+        f"Performance regression: {current_time:.3f}s vs baseline {baseline_time:.3f}s " \
+        f"(>{tolerance*100}% slower)"
+
+
+# =============================================================================
+# Async Testing Helpers
+# =============================================================================
+
+async def assert_async_timeout(coro, timeout: float = 5.0, 
+                             error_msg: str = "Async operation timed out"):
+    """Assert async operation completes within timeout.
+    
+    Args:
+        coro: Coroutine to execute
+        timeout: Maximum allowed duration
+        error_msg: Error message if timeout occurs
+        
+    Returns:
+        Result of coroutine
+        
+    Raises:
+        AssertionError: If operation times out
+    """
+    try:
+        return await asyncio.wait_for(coro, timeout=timeout)
+    except asyncio.TimeoutError:
+        raise AssertionError(f"{error_msg} after {timeout}s")
+
+
+async def assert_websocket_receives(websocket, expected_type: str, 
+                                  timeout: float = 5.0) -> Dict[str, Any]:
+    """Assert WebSocket receives message of expected type.
+    
+    Args:
+        websocket: WebSocket connection
+        expected_type: Expected message type
+        timeout: Maximum wait time
+        
+    Returns:
+        Received message data
+        
+    Raises:
+        AssertionError: If wrong message type or timeout
+    """
+    message = await assert_async_timeout(
+        websocket.receive_json(),
+        timeout=timeout,
+        error_msg=f"No WebSocket message received"
+    )
+    
+    assert_websocket_message_valid(message, expected_type)
+    return message['data']
+
+
+# Export all assertion functions
+__all__ = [
+    # Existing exports...
+    'assert_fields_equal',
+    'assert_subset',
+    'assert_valid_uuid',
+    'assert_called_with_subset',
+    'DatabaseTestHelper',
+    'measure_time',
+    'async_timeout',
+    'create_mock_async_context_manager',
+    'patch_datetime_now',
+    'capture_logs',
+    
+    # New domain-specific assertions
+    'assert_valid_project_state',
+    'assert_task_hierarchy_valid',
+    'assert_valid_task_state',
+    'assert_valid_document_state',
+    'assert_websocket_message_valid',
+    'assert_api_response_valid',
+    'assert_search_results_valid',
+    
+    # Performance helpers
+    'PerformanceTimer',
+    'assert_performance_regression',
+    
+    # Async helpers
+    'assert_async_timeout',
+    'assert_websocket_receives',
+]

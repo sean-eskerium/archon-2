@@ -571,3 +571,303 @@ def create_test_chat_session() -> Dict[str, Any]:
 def reset_test_data():
     """Reset all test data counters and caches."""
     IDGenerator.reset()
+
+
+# =============================================================================
+# Builder Pattern for Complex Test Data
+# =============================================================================
+
+class ProjectBuilder:
+    """Builder pattern for creating complex project test data."""
+    
+    def __init__(self):
+        """Initialize with default project."""
+        self._project = ProjectFactory.create()
+        self._tasks = []
+        self._documents = []
+        self._knowledge_sources = []
+    
+    def with_title(self, title: str) -> 'ProjectBuilder':
+        """Set project title."""
+        self._project['title'] = title
+        return self
+    
+    def with_status(self, status: str) -> 'ProjectBuilder':
+        """Set project status."""
+        self._project['status'] = status
+        return self
+    
+    def with_metadata(self, **metadata) -> 'ProjectBuilder':
+        """Update project metadata."""
+        self._project['metadata'].update(metadata)
+        return self
+    
+    def with_tasks(self, count: int = 5, **task_kwargs) -> 'ProjectBuilder':
+        """Add tasks to the project."""
+        for i in range(count):
+            task = TaskFactory.create(
+                project_id=self._project['id'],
+                **task_kwargs
+            )
+            self._tasks.append(task)
+        return self
+    
+    def with_task_hierarchy(self, depth: int = 2, width: int = 3) -> 'ProjectBuilder':
+        """Add hierarchical tasks to the project."""
+        def create_subtasks(parent_id: str, current_depth: int):
+            if current_depth >= depth:
+                return
+            
+            for i in range(width):
+                subtask = TaskFactory.create(
+                    project_id=self._project['id'],
+                    parent_task_id=parent_id,
+                    title=f"Subtask {i+1} of {parent_id}"
+                )
+                self._tasks.append(subtask)
+                create_subtasks(subtask['id'], current_depth + 1)
+        
+        # Create root tasks
+        root_count = max(1, width // 2)
+        for i in range(root_count):
+            root_task = TaskFactory.create(
+                project_id=self._project['id'],
+                title=f"Root Task {i+1}"
+            )
+            self._tasks.append(root_task)
+            create_subtasks(root_task['id'], 1)
+        
+        return self
+    
+    def with_documents(self, count: int = 3, **doc_kwargs) -> 'ProjectBuilder':
+        """Add documents to the project."""
+        for i in range(count):
+            doc = DocumentFactory.create(
+                project_id=self._project['id'],
+                **doc_kwargs
+            )
+            self._documents.append(doc)
+        return self
+    
+    def with_knowledge_sources(self, count: int = 2, **source_kwargs) -> 'ProjectBuilder':
+        """Add knowledge sources to the project."""
+        for i in range(count):
+            source = KnowledgeSourceFactory.create(**source_kwargs)
+            self._knowledge_sources.append(source)
+        return self
+    
+    def with_prd(self, prd_content: Optional[Dict[str, Any]] = None) -> 'ProjectBuilder':
+        """Add PRD to the project."""
+        if prd_content is None:
+            prd_content = {
+                "description": "Project requirements document",
+                "features": ["Feature 1", "Feature 2", "Feature 3"],
+                "technical_requirements": ["React", "FastAPI", "PostgreSQL"],
+                "timeline": "3 months"
+            }
+        self._project['prd'] = prd_content
+        return self
+    
+    def with_github_repo(self, repo: str = "org/repo") -> 'ProjectBuilder':
+        """Set GitHub repository."""
+        self._project['github_repo'] = repo
+        return self
+    
+    def build(self) -> Dict[str, Any]:
+        """Build and return the complete project data."""
+        result = {
+            'project': self._project,
+            'tasks': self._tasks,
+            'documents': self._documents,
+            'knowledge_sources': self._knowledge_sources
+        }
+        
+        # Add computed fields
+        result['task_count'] = len(self._tasks)
+        result['document_count'] = len(self._documents)
+        result['has_hierarchy'] = any(t.get('parent_task_id') for t in self._tasks)
+        
+        return result
+
+
+class TaskBuilder:
+    """Builder pattern for creating complex task test data."""
+    
+    def __init__(self, project_id: Optional[str] = None):
+        """Initialize with default task."""
+        self._task = TaskFactory.create(project_id=project_id)
+        self._subtasks = []
+        self._comments = []
+        self._attachments = []
+    
+    def with_title(self, title: str) -> 'TaskBuilder':
+        """Set task title."""
+        self._task['title'] = title
+        return self
+    
+    def with_status(self, status: str) -> 'TaskBuilder':
+        """Set task status."""
+        self._task['status'] = status
+        return self
+    
+    def with_assignee(self, assignee: str) -> 'TaskBuilder':
+        """Set task assignee."""
+        self._task['assignee'] = assignee
+        return self
+    
+    def with_priority(self, priority: str) -> 'TaskBuilder':
+        """Set task priority."""
+        self._task['priority'] = priority
+        return self
+    
+    def with_due_date(self, due_date: str) -> 'TaskBuilder':
+        """Set task due date."""
+        self._task['due_date'] = due_date
+        return self
+    
+    def with_labels(self, *labels: str) -> 'TaskBuilder':
+        """Set task labels."""
+        self._task['labels'] = list(labels)
+        return self
+    
+    def with_subtasks(self, count: int = 3, **subtask_kwargs) -> 'TaskBuilder':
+        """Add subtasks."""
+        for i in range(count):
+            subtask = TaskFactory.create(
+                project_id=self._task['project_id'],
+                parent_task_id=self._task['id'],
+                **subtask_kwargs
+            )
+            self._subtasks.append(subtask)
+        return self
+    
+    def with_comments(self, count: int = 2) -> 'TaskBuilder':
+        """Add comments to the task."""
+        for i in range(count):
+            comment = {
+                "id": IDGenerator.generate("comment"),
+                "task_id": self._task['id'],
+                "author": random.choice(["user1", "user2", "user3"]),
+                "content": f"Comment {i+1} on this task",
+                "created_at": datetime.utcnow().isoformat()
+            }
+            self._comments.append(comment)
+        return self
+    
+    def with_attachments(self, count: int = 1) -> 'TaskBuilder':
+        """Add attachments to the task."""
+        for i in range(count):
+            attachment = {
+                "id": IDGenerator.generate("attach"),
+                "task_id": self._task['id'],
+                "filename": f"document_{i+1}.pdf",
+                "size": random.randint(1000, 1000000),
+                "mime_type": "application/pdf",
+                "uploaded_at": datetime.utcnow().isoformat()
+            }
+            self._attachments.append(attachment)
+        return self
+    
+    def with_metadata(self, **metadata) -> 'TaskBuilder':
+        """Update task metadata."""
+        self._task['metadata'].update(metadata)
+        return self
+    
+    def as_blocked(self, blocker_ids: Optional[List[str]] = None) -> 'TaskBuilder':
+        """Mark task as blocked."""
+        self._task['metadata']['blocked'] = True
+        self._task['metadata']['blockers'] = blocker_ids or [IDGenerator.generate("task")]
+        return self
+    
+    def as_completed(self, hours: Optional[int] = None) -> 'TaskBuilder':
+        """Mark task as completed with actual hours."""
+        self._task['status'] = 'done'
+        if hours:
+            self._task['metadata']['actual_hours'] = hours
+        self._task['completed_at'] = datetime.utcnow().isoformat()
+        return self
+    
+    def build(self) -> Dict[str, Any]:
+        """Build and return the complete task data."""
+        return {
+            'task': self._task,
+            'subtasks': self._subtasks,
+            'comments': self._comments,
+            'attachments': self._attachments,
+            'total_subtasks': len(self._subtasks),
+            'has_comments': len(self._comments) > 0,
+            'has_attachments': len(self._attachments) > 0
+        }
+
+
+class TestScenarioBuilder:
+    """Builder for complete test scenarios."""
+    
+    def __init__(self):
+        """Initialize empty scenario."""
+        self._projects = []
+        self._users = []
+        self._chat_sessions = []
+        self._knowledge_bases = []
+    
+    def with_project(self, builder: Optional[ProjectBuilder] = None) -> 'TestScenarioBuilder':
+        """Add a project to the scenario."""
+        if builder is None:
+            builder = ProjectBuilder()
+        self._projects.append(builder.build())
+        return self
+    
+    def with_active_project_workflow(self) -> 'TestScenarioBuilder':
+        """Add a complete active project workflow."""
+        project = (ProjectBuilder()
+                  .with_title("Active Development Project")
+                  .with_status("active")
+                  .with_task_hierarchy(depth=3, width=3)
+                  .with_documents(count=5)
+                  .with_knowledge_sources(count=2)
+                  .with_prd()
+                  .with_github_repo("myorg/myrepo")
+                  .build())
+        self._projects.append(project)
+        return self
+    
+    def with_users(self, count: int = 3) -> 'TestScenarioBuilder':
+        """Add users to the scenario."""
+        for i in range(count):
+            user = {
+                "id": IDGenerator.generate("user"),
+                "username": f"testuser{i+1}",
+                "email": f"user{i+1}@example.com",
+                "role": random.choice(["admin", "developer", "viewer"]),
+                "created_at": datetime.utcnow().isoformat()
+            }
+            self._users.append(user)
+        return self
+    
+    def with_chat_session(self, messages: int = 10) -> 'TestScenarioBuilder':
+        """Add a chat session to the scenario."""
+        session = create_test_chat_session()
+        self._chat_sessions.append(session)
+        return self
+    
+    def with_knowledge_base(self, sources: int = 5) -> 'TestScenarioBuilder':
+        """Add a knowledge base to the scenario."""
+        kb = create_test_knowledge_base()
+        self._knowledge_bases.append(kb)
+        return self
+    
+    def build(self) -> Dict[str, Any]:
+        """Build complete test scenario."""
+        return {
+            'projects': self._projects,
+            'users': self._users,
+            'chat_sessions': self._chat_sessions,
+            'knowledge_bases': self._knowledge_bases,
+            'stats': {
+                'total_projects': len(self._projects),
+                'total_tasks': sum(p['task_count'] for p in self._projects),
+                'total_documents': sum(p['document_count'] for p in self._projects),
+                'total_users': len(self._users),
+                'total_chat_sessions': len(self._chat_sessions)
+            }
+        }
