@@ -51,7 +51,7 @@ SUPABASE_SERVICE_KEY=your-service-key-here
 
 1. **Set Up Database**: In your [Supabase project](https://supabase.com/dashboard) SQL Editor, run:
    ```sql
-   -- Copy and paste the contents of migration/1_initial_setup.sql
+   -- Copy and paste the contents of migration/complete_setup.sql
    ```
 
 2. **Start Archon**:

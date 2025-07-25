@@ -17,7 +17,6 @@ import { mcpServerService, ServerStatus, LogEntry, ServerConfig } from '../servi
  * 1. Server Control Tab:
  *    - Start/stop the MCP server
  *    - Monitor server status and uptime
- *    - Switch between SSE and stdio transports
  *    - View and copy connection configuration
  *    - Real-time log streaming via WebSocket
  *    - Historical log viewing and clearing
@@ -133,7 +132,7 @@ export const MCPPage = () => {
       console.error('Failed to load configuration:', error);
       // Set a default config if loading fails
       setConfig({
-        transport: 'sse',
+        transport: 'http',
         host: 'localhost',
         port: 8051
       });
@@ -195,11 +194,11 @@ export const MCPPage = () => {
   const generateCursorDeeplink = () => {
     if (!config) return '';
     
-    const sseConfig = {
-      url: `http://${config.host}:${config.port}/sse`
+    const httpConfig = {
+      url: `http://${config.host}:${config.port}/mcp`
     };
     
-    const configString = JSON.stringify(sseConfig);
+    const configString = JSON.stringify(httpConfig);
     const base64Config = btoa(configString);
     return `cursor://anysphere.cursor-deeplink/mcp/install?name=archon&config=${base64Config}`;
   };
@@ -216,31 +215,31 @@ export const MCPPage = () => {
     if (!config) return '';
     
     if (ide === 'cursor') {
-      // Cursor connecting to SSE server
+      // Cursor connecting to Streamable HTTP server
       const cursorConfig = {
         mcpServers: {
           archon: {
-            url: `http://${config.host}:${config.port}/sse`
+            url: `http://${config.host}:${config.port}/mcp`
           }
         }
       };
       return JSON.stringify(cursorConfig, null, 2);
     } else if (ide === 'windsurf') {
-      // Windsurf can use SSE transport
+      // Windsurf can use Streamable HTTP transport
       const windsurfConfig = {
         mcpServers: {
           archon: {
-            "serverUrl": `http://${config.host}:${config.port}/sse`
+            "serverUrl": `http://${config.host}:${config.port}/mcp`
           }
         }
       };
       return JSON.stringify(windsurfConfig, null, 2);
     } else {
-      // Claude Code uses CLI commands, show SSE config as example
+      // Claude Code uses CLI commands, show HTTP config as example
       const claudeConfig = {
         name: "archon",
-        transport: "sse",
-        url: `http://${config.host}:${config.port}/sse`
+        transport: "http",
+        url: `http://${config.host}:${config.port}/mcp`
       };
       return JSON.stringify(claudeConfig, null, 2);
     }
@@ -273,7 +272,7 @@ export const MCPPage = () => {
           title: 'Claude Code Configuration',
           steps: [
             '1. Open a terminal and run the following command:',
-            `2. claude mcp add --transport sse archon http://${config?.host}:${config?.port}/sse`,
+            `2. claude mcp add --transport http archon http://${config?.host}:${config?.port}/mcp`,
             '3. The connection will be established automatically'
           ]
         };
@@ -466,7 +465,7 @@ export const MCPPage = () => {
                       <h3 className="text-sm font-medium text-gray-700 dark:text-zinc-300">
                         IDE Configuration
                         <span className="ml-2 px-2 py-1 text-xs bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
-                          SSE Mode
+                          HTTP Mode
                         </span>
                       </h3>
                       <Button

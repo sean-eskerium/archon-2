@@ -573,13 +573,13 @@ archon:manage_task(
           >
             <div className="flex items-center gap-2 mb-2">
               <img src="/img/claude-logo.svg" alt="Claude" className="w-5 h-5" />
-              <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Claude</h3>
+              <h3 className="text-sm font-semibold text-gray-800 dark:text-white">Claude Code</h3>
               {selectedIDE === 'claude' && (
                 <Check className="w-4 h-4 ml-auto text-orange-600 dark:text-orange-300" />
               )}
             </div>
             <p className="text-xs text-gray-600 dark:text-gray-400">
-              Create CLAUDE.md file in project root for Claude Desktop integration
+              Create CLAUDE.md file in project root for Claude Code integration
             </p>
           </div>
         </div>

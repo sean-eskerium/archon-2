@@ -148,7 +148,7 @@ export const MCPClients = memo(() => {
       'error': 'error'
     };
 
-    // Extract connection info (SSE-only)
+    // Extract connection info (Streamable HTTP-only)
     const config = dbClient.connection_config;
     const ip = config.url || 'N/A';
 
@@ -473,7 +473,7 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ isOpen, onClose, onSubm
 
       const clientConfig: MCPClientConfig = {
         name: formData.name.trim(),
-        transport_type: 'sse',
+        transport_type: 'http',
         connection_config,
         auto_connect: formData.auto_connect
       };
@@ -531,11 +531,11 @@ const AddClientModal: React.FC<AddClientModalProps> = ({ isOpen, onClose, onSubm
               value={formData.url}
               onChange={(e) => setFormData(prev => ({ ...prev, url: e.target.value }))}
               className="w-full px-3 py-2 bg-white/50 dark:bg-black/50 border border-gray-300 dark:border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500" 
-              placeholder="http://host.docker.internal:8051/sse" 
+              placeholder="http://host.docker.internal:8051/mcp" 
               required
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              The SSE endpoint URL of the MCP server
+              The HTTP endpoint URL of the MCP server
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               <strong>Docker Note:</strong> Use <code>host.docker.internal</code> instead of <code>localhost</code> 
@@ -666,7 +666,7 @@ const EditClientDrawer: React.FC<EditClientDrawerProps> = ({ client, isOpen, onC
       // Update client via API
       const updatedClient = await mcpClientService.updateClient(client.id, {
         name: editFormData.name,
-        transport_type: 'sse',
+        transport_type: 'http',
         connection_config,
         auto_connect: editFormData.auto_connect
       });
@@ -763,11 +763,11 @@ const EditClientDrawer: React.FC<EditClientDrawerProps> = ({ client, isOpen, onC
               value={editFormData.url}
               onChange={(e) => setEditFormData(prev => ({ ...prev, url: e.target.value }))}
               className="w-full px-3 py-2 bg-white/50 dark:bg-black/50 border border-gray-300 dark:border-gray-700 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-500" 
-              placeholder="http://host.docker.internal:8051/sse" 
+              placeholder="http://host.docker.internal:8051/mcp" 
               required
             />
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              The SSE endpoint URL of the MCP server
+              The HTTP endpoint URL of the MCP server
             </p>
             <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
               <strong>Docker Note:</strong> Use <code>host.docker.internal</code> instead of <code>localhost</code> 

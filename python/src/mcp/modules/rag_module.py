@@ -2,8 +2,6 @@
 RAG Module for Archon MCP Server (HTTP-based version)
 
 This module provides tools for:
-- Web crawling (single pages, smart crawling, recursive crawling)
-- Document upload and processing
 - RAG query and search
 - Source management
 - Code example extraction and search
@@ -40,119 +38,6 @@ def get_bool_setting(key: str, default: bool = False) -> bool:
 
 def register_rag_tools(mcp: FastMCP):
     """Register all RAG tools with the MCP server."""
-    
-    @mcp.tool()
-    async def crawl_single_page(ctx: Context, url: str, chunk_size: int = 5000) -> str:
-        """
-        Crawl a single web page and store its content.
-        
-        This tool delegates to the API service via HTTP.
-        
-        Args:
-            url: The URL to crawl
-            chunk_size: Maximum size of each content chunk (default: 5000 characters)
-        
-        Returns:
-            JSON string with success status and metadata
-        """
-        try:
-            api_url = get_api_url()
-            timeout = httpx.Timeout(300.0, connect=5.0)  # 5 minutes for crawling
-            
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    urljoin(api_url, "/api/knowledge-items/crawl"),
-                    json={
-                        "url": url,
-                        "knowledge_type": "documentation",
-                        "tags": [],
-                        "update_frequency": 7,
-                        "metadata": {
-                            "max_depth": 1,
-                            "chunk_size": chunk_size,
-                            "smart_crawl": False
-                        }
-                    }
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return json.dumps({
-                        "success": result.get("success", True),
-                        "progressId": result.get("progressId"),
-                        "message": result.get("message", "Crawling started"),
-                        "error": None
-                    }, indent=2)
-                else:
-                    error_detail = response.text
-                    return json.dumps({
-                        "success": False,
-                        "error": f"HTTP {response.status_code}: {error_detail}"
-                    }, indent=2)
-                    
-        except Exception as e:
-            logger.error(f"Error crawling single page: {e}")
-            return json.dumps({
-                "success": False,
-                "error": str(e)
-            }, indent=2)
-    
-    @mcp.tool()
-    async def smart_crawl_url(ctx: Context, url: str, max_depth: int = 3, chunk_size: int = 5000) -> str:
-        """
-        Intelligently crawl a URL based on its type (sitemap, text file, or webpage).
-        
-        This tool delegates to the API service via HTTP.
-        
-        Args:
-            url: The URL to crawl
-            max_depth: Maximum crawl depth for recursive crawling (default: 3)
-            chunk_size: Maximum size of each content chunk (default: 5000 characters)
-        
-        Returns:
-            JSON string with crawl results
-        """
-        try:
-            api_url = get_api_url()
-            timeout = httpx.Timeout(300.0, connect=5.0)  # 5 minutes for crawling
-            
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    urljoin(api_url, "/api/knowledge-items/crawl"),
-                    json={
-                        "url": url,
-                        "knowledge_type": "documentation",
-                        "tags": [],
-                        "update_frequency": 7,
-                        "metadata": {
-                            "max_depth": max_depth,
-                            "chunk_size": chunk_size,
-                            "smart_crawl": True
-                        }
-                    }
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return json.dumps({
-                        "success": result.get("success", True),
-                        "progressId": result.get("progressId"),
-                        "message": result.get("message", "Crawling started"),
-                        "error": None
-                    }, indent=2)
-                else:
-                    error_detail = response.text
-                    return json.dumps({
-                        "success": False,
-                        "error": f"HTTP {response.status_code}: {error_detail}"
-                    }, indent=2)
-                    
-        except Exception as e:
-            logger.error(f"Error smart crawling: {e}")
-            return json.dumps({
-                "success": False,
-                "error": str(e)
-            }, indent=2)
     
     @mcp.tool()
     async def get_available_sources(ctx: Context) -> str:
@@ -253,50 +138,6 @@ def register_rag_tools(mcp: FastMCP):
             }, indent=2)
     
     @mcp.tool()
-    async def delete_source(ctx: Context, source: str) -> str:
-        """
-        Delete all documents from a specific source.
-        
-        This tool uses HTTP call to the API service.
-        
-        Args:
-            source: The source domain to delete
-        
-        Returns:
-            JSON string with deletion results
-        """
-        try:
-            api_url = get_api_url()
-            timeout = httpx.Timeout(30.0, connect=5.0)
-            
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.delete(
-                    urljoin(api_url, f"/api/sources/{source}")
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return json.dumps({
-                        "success": True,
-                        "source": source,
-                        "message": result.get("message", f"Successfully deleted source {source}")
-                    }, indent=2)
-                else:
-                    error_detail = response.text
-                    return json.dumps({
-                        "success": False,
-                        "source": source,
-                        "error": f"HTTP {response.status_code}: {error_detail}"
-                    }, indent=2)
-                    
-        except Exception as e:
-            logger.error(f"Error deleting source: {e}")
-            return json.dumps({
-                "success": False,
-                "error": str(e)
-            }, indent=2)
-    
-    @mcp.tool()
     async def search_code_examples(ctx: Context, query: str, source_id: str = None, match_count: int = 5) -> str:
         """
         Search for code examples relevant to the query.
@@ -357,63 +198,6 @@ def register_rag_tools(mcp: FastMCP):
                 "error": str(e)
             }, indent=2)
     
-    @mcp.tool()
-    async def upload_document(ctx: Context, filename: str, content: str, doc_type: str = "general") -> str:
-        """
-        Upload a document's content to the knowledge base.
-        
-        This tool delegates to the API service via HTTP.
-        
-        Args:
-            filename: Name of the document
-            content: Document content as text
-            doc_type: Type of document (general, technical, business)
-        
-        Returns:
-            JSON string with upload results
-        """
-        try:
-            api_url = get_api_url()
-            timeout = httpx.Timeout(60.0, connect=5.0)
-            
-            # Create multipart form data for file upload
-            files = {
-                'file': (filename, content, 'text/plain')
-            }
-            data = {
-                'knowledge_type': doc_type,
-                'tags': json.dumps([]),
-                'update_frequency': '7'
-            }
-            
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                response = await client.post(
-                    urljoin(api_url, "/api/documents/upload"),
-                    files=files,
-                    data=data
-                )
-                
-                if response.status_code == 200:
-                    result = response.json()
-                    return json.dumps({
-                        "success": True,
-                        "documents_stored": 1,
-                        "chunks_created": result.get("chunks_created", 1),
-                        "message": result.get("message", "Document uploaded successfully")
-                    }, indent=2)
-                else:
-                    error_detail = response.text
-                    return json.dumps({
-                        "success": False,
-                        "error": f"HTTP {response.status_code}: {error_detail}"
-                    }, indent=2)
-                    
-        except Exception as e:
-            logger.error(f"Error uploading document: {e}")
-            return json.dumps({
-                "success": False,
-                "error": str(e)
-            }, indent=2)
 
     # Log successful registration
     logger.info("✓ RAG tools registered (HTTP-based version)")

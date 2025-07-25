@@ -19,14 +19,15 @@ from ..llm_provider_service import get_llm_client, get_llm_client_sync, get_embe
 get_openai_client = get_llm_client
 
 
-def create_embedding(text: str) -> List[float]:
+def create_embedding(text: str, provider: Optional[str] = None) -> List[float]:
     """
-    Create an embedding for a single text using OpenAI's API.
+    Create an embedding for a single text using the configured provider.
     
     This is a synchronous wrapper around the async version for backward compatibility.
     
     Args:
         text: Text to create an embedding for
+        provider: Optional provider override
         
     Returns:
         List of floats representing the embedding
@@ -36,36 +37,60 @@ def create_embedding(text: str) -> List[float]:
         try:
             loop = asyncio.get_running_loop()
             # If we're already in an async context, we can't run sync - return zero embedding
-            search_logger.warning("create_embedding called from async context - returning zero embedding")
+            search_logger.warning("create_embedding called from async context - using zero embedding fallback")
+            search_logger.warning(f"Text preview for zero embedding: {text[:100]}...")
             return [0.0] * 1536
         except RuntimeError:
             # No running loop, safe to use asyncio.run
-            return asyncio.run(create_embedding_async(text))
+            return asyncio.run(create_embedding_async(text, provider=provider))
     except Exception as e:
-        search_logger.error(f"Error creating embedding: {e}")
-        # Return zero embedding if there's an error
+        # Enhanced logging for zero embedding fallback
+        search_logger.warning(f"Embedding creation failed, using zero fallback: {str(e)}")
+        search_logger.warning(f"Failed text preview: {text[:100]}...")
+        
+        # Track failure metrics
+        if "insufficient_quota" in str(e):
+            search_logger.error("OpenAI quota exhausted - zero embeddings returned")
+        elif "rate_limit" in str(e).lower():
+            search_logger.warning("Rate limit hit - zero embeddings returned")
+        else:
+            search_logger.error(f"Unexpected embedding error: {type(e).__name__}")
+        
+        # Continue with zero embeddings to keep process working
         return [0.0] * 1536
 
 
-async def create_embedding_async(text: str) -> List[float]:
+async def create_embedding_async(text: str, provider: Optional[str] = None) -> List[float]:
     """
-    Create an embedding for a single text using async OpenAI API.
+    Create an embedding for a single text using the configured provider.
     
     Args:
         text: Text to create an embedding for
+        provider: Optional provider override
         
     Returns:
         List of floats representing the embedding
     """
     try:
-        embeddings = await create_embeddings_batch_async([text])
+        embeddings = await create_embeddings_batch_async([text], provider=provider)
         return embeddings[0] if embeddings else [0.0] * 1536
     except Exception as e:
-        search_logger.error(f"Error creating single embedding: {e}")
+        # Enhanced logging for zero embedding fallback
+        search_logger.warning(f"Async embedding creation failed, using zero fallback: {str(e)}")
+        search_logger.warning(f"Failed text preview: {text[:100]}...")
+        
+        # Track failure metrics
+        if "insufficient_quota" in str(e):
+            search_logger.error("OpenAI quota exhausted - zero embeddings returned")
+        elif "rate_limit" in str(e).lower():
+            search_logger.warning("Rate limit hit - zero embeddings returned")
+        else:
+            search_logger.error(f"Unexpected embedding error: {type(e).__name__}")
+        
         return [0.0] * 1536
 
 
-def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
+def create_embeddings_batch(texts: List[str], provider: Optional[str] = None) -> List[List[float]]:
     """
     Create embeddings for multiple texts in a single API call.
     
@@ -73,6 +98,7 @@ def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
     
     Args:
         texts: List of texts to create embeddings for
+        provider: Optional provider override
         
     Returns:
         List of embeddings (each embedding is a list of floats)
@@ -85,13 +111,25 @@ def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
         try:
             loop = asyncio.get_running_loop()
             # If we're already in an async context, we can't run sync - return zero embeddings
-            search_logger.warning("create_embeddings_batch called from async context - returning zero embeddings")
+            search_logger.warning("create_embeddings_batch called from async context - using zero embedding fallback")
+            search_logger.warning(f"Batch size: {len(texts)}, first text preview: {texts[0][:100] if texts else 'empty'}...")
             return [[0.0] * 1536 for _ in texts]
         except RuntimeError:
             # No running loop, safe to use asyncio.run
-            return asyncio.run(create_embeddings_batch_async(texts))
+            return asyncio.run(create_embeddings_batch_async(texts, provider=provider))
     except Exception as e:
-        search_logger.error(f"Error creating batch embeddings: {e}")
+        # Enhanced logging for zero embedding fallback
+        search_logger.warning(f"Batch embedding creation failed, using zero fallback: {str(e)}")
+        search_logger.warning(f"Batch size: {len(texts)}, first text preview: {texts[0][:100] if texts else 'empty'}...")
+        
+        # Track failure metrics
+        if "insufficient_quota" in str(e):
+            search_logger.error("OpenAI quota exhausted - zero embeddings returned")
+        elif "rate_limit" in str(e).lower():
+            search_logger.warning("Rate limit hit - zero embeddings returned")
+        else:
+            search_logger.error(f"Unexpected embedding error: {type(e).__name__}")
+        
         # Return zero embeddings as fallback
         return [[0.0] * 1536 for _ in texts]
 
@@ -99,7 +137,8 @@ def create_embeddings_batch(texts: List[str]) -> List[List[float]]:
 async def create_embeddings_batch_async(
     texts: List[str], 
     websocket: Optional[Any] = None,
-    progress_callback: Optional[Any] = None
+    progress_callback: Optional[Any] = None,
+    provider: Optional[str] = None
 ) -> List[List[float]]:
     """
     Create embeddings for multiple texts with threading optimizations.
@@ -108,6 +147,7 @@ async def create_embeddings_batch_async(
         texts: List of texts to create embeddings for
         websocket: Optional WebSocket for progress updates
         progress_callback: Optional callback for progress reporting
+        provider: Optional provider override
         
     Returns:
         List of embeddings (each embedding is a list of floats)
@@ -138,7 +178,7 @@ async def create_embeddings_batch_async(
                            total_chars=sum(len(t) for t in texts)) as span:
         
         try:
-            async with get_openai_client() as client:
+            async with get_llm_client(provider=provider, use_embedding_provider=True) as client:
                 # Split into smaller batches if needed
                 batch_size = 20  # OpenAI's batch limit
                 all_embeddings = []
@@ -159,10 +199,11 @@ async def create_embeddings_batch_async(
                         while retry_count < max_retries:
                             try:
                                 # Create embeddings for this batch
-                                embedding_model = await get_embedding_model()
+                                embedding_model = await get_embedding_model(provider=provider)
                                 response = await client.embeddings.create(
                                     model=embedding_model,
-                                    input=batch
+                                    input=batch,
+                                    dimensions=1536
                                 )
                                 
                                 batch_embeddings = [item.embedding for item in response.data]

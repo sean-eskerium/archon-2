@@ -29,7 +29,8 @@ async def add_documents_to_supabase(
     url_to_full_document: Dict[str, str],
     batch_size: int = 15,
     progress_callback: Optional[Any] = None,
-    enable_parallel_batches: bool = True
+    enable_parallel_batches: bool = True,
+    provider: Optional[str] = None
 ) -> None:
     """
     Add documents to Supabase with threading optimizations.
@@ -45,6 +46,7 @@ async def add_documents_to_supabase(
         url_to_full_document: Dictionary mapping URLs to their full document content
         batch_size: Size of each batch for insertion
         progress_callback: Optional async callback function for progress reporting
+        provider: Optional provider override for embeddings
     """
     with safe_span("add_documents_to_supabase",
                            total_documents=len(contents),
@@ -175,7 +177,8 @@ async def add_documents_to_supabase(
             # Create embeddings for the batch - no progress reporting
             # Don't pass websocket to avoid Socket.IO issues
             batch_embeddings = await create_embeddings_batch_async(
-                contextual_contents
+                contextual_contents,
+                provider=provider
             )
             
             # Prepare batch data

@@ -6,9 +6,9 @@ import { z } from 'zod';
 
 export interface MCPClientConfig {
   name: string;
-  transport_type: 'sse';  // Only SSE (Streamable HTTP) is supported for MCP clients
+  transport_type: 'http';  // Only Streamable HTTP is supported for MCP clients
   connection_config: {
-    url: string;  // The SSE endpoint URL (e.g., http://localhost:8051/sse)
+    url: string;  // The Streamable HTTP endpoint URL (e.g., http://localhost:8051/mcp)
   };
   auto_connect?: boolean;
   health_check_interval?: number;
@@ -18,7 +18,7 @@ export interface MCPClientConfig {
 export interface MCPClient {
   id: string;
   name: string;
-  transport_type: 'sse';  // Only SSE (Streamable HTTP) is supported
+  transport_type: 'http';  // Only Streamable HTTP is supported
   connection_config: {
     url: string;
   };
@@ -399,14 +399,14 @@ class MCPClientService {
   // ========================================
 
   /**
-   * Create Archon MCP client using SSE transport
+   * Create Archon MCP client using Streamable HTTP transport
    */
   async createArchonClient(): Promise<MCPClient> {
     const archonConfig: MCPClientConfig = {
       name: 'Archon',
-      transport_type: 'sse',
+      transport_type: 'http',
       connection_config: {
-        url: 'http://localhost:8051/sse'
+        url: 'http://localhost:8051/mcp'
       },
       auto_connect: true,
       health_check_interval: 30,

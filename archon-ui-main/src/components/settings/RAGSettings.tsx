@@ -55,9 +55,8 @@ export const RAGSettings = ({
               accentColor="green"
               options={[
                 { value: 'openai', label: 'OpenAI' },
-                { value: 'openrouter', label: 'OpenRouter' },
-                { value: 'ollama', label: 'Ollama (Local)' },
-                { value: 'google', label: 'Google Gemini' }
+                { value: 'google', label: 'Google Gemini' },
+                { value: 'ollama', label: 'Ollama (Coming Soon)' },
               ]}
             />
           </div>
@@ -271,8 +270,6 @@ function getModelPlaceholder(provider: string): string {
   switch (provider) {
     case 'openai':
       return 'e.g., gpt-4o-mini';
-    case 'openrouter':
-      return 'e.g., openai/gpt-4o-mini';
     case 'ollama':
       return 'e.g., llama2, mistral';
     case 'google':
@@ -286,8 +283,6 @@ function getEmbeddingPlaceholder(provider: string): string {
   switch (provider) {
     case 'openai':
       return 'Default: text-embedding-3-small';
-    case 'openrouter':
-      return 'e.g., openai/text-embedding-3-small';
     case 'ollama':
       return 'e.g., nomic-embed-text';
     case 'google':

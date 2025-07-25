@@ -7,7 +7,7 @@ Includes proper rate limiting for OpenAI API calls.
 import os
 import time
 import asyncio
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 import openai
 
 from ...config.logfire_config import search_logger
@@ -15,7 +15,7 @@ from ..threading_service import get_threading_service
 from ..llm_provider_service import get_llm_client, get_llm_client_sync
 
 
-def generate_contextual_embedding(full_document: str, chunk: str) -> Tuple[str, bool]:
+def generate_contextual_embedding(full_document: str, chunk: str, provider: str = None) -> Tuple[str, bool]:
     """
     Generate contextual information for a chunk within a document to improve retrieval.
     
@@ -25,6 +25,7 @@ def generate_contextual_embedding(full_document: str, chunk: str) -> Tuple[str, 
     Args:
         full_document: The complete document text
         chunk: The specific chunk of text to generate context for
+        provider: Optional provider override
         
     Returns:
         Tuple containing:
@@ -38,7 +39,7 @@ def generate_contextual_embedding(full_document: str, chunk: str) -> Tuple[str, 
         print(f"Error: Failed to create LLM client: {e}")
         return chunk, False
     
-    # Get model choice from credential service (RAG setting)
+    # Get model choice from environment (sync version)
     model_choice = _get_model_choice()
     
     try:
@@ -84,7 +85,7 @@ Please give a short succinct context to situate this chunk within the overall do
         return chunk, False
 
 
-async def generate_contextual_embedding_async(full_document: str, chunk: str) -> Tuple[str, bool]:
+async def generate_contextual_embedding_async(full_document: str, chunk: str, provider: str = None) -> Tuple[str, bool]:
     """
     Generate contextual information for a chunk with proper rate limiting.
     
@@ -93,6 +94,7 @@ async def generate_contextual_embedding_async(full_document: str, chunk: str) ->
     Args:
         full_document: The complete document text
         chunk: The specific chunk of text to generate context for
+        provider: Optional provider override
         
     Returns:
         Tuple containing:
@@ -118,7 +120,7 @@ async def generate_contextual_embedding_async(full_document: str, chunk: str) ->
     try:
         # Use rate limiting before making the API call
         async with threading_service.rate_limited_operation(estimated_tokens):
-            async with get_llm_client() as client:
+            async with get_llm_client(provider=provider) as client:
                 prompt = f"""<document> 
 {full_document[:5000]} 
 </document>
@@ -128,8 +130,11 @@ Here is the chunk we want to situate within the whole document
 </chunk> 
 Please give a short succinct context to situate this chunk within the overall document for the purposes of improving search retrieval of the chunk. Answer only with the succinct context and nothing else."""
 
+                # Get model from provider configuration
+                model = await _get_model_choice_async(provider)
+                
                 response = await client.chat.completions.create(
-                    model=model_choice,
+                    model=model,
                     messages=[
                         {"role": "system", "content": "You are a helpful assistant that provides concise contextual information."},
                         {"role": "user", "content": prompt}
@@ -184,7 +189,18 @@ async def process_chunk_with_context_async(url: str, content: str, full_document
     """
     return await generate_contextual_embedding_async(full_document, content)
 
-
+async def _get_model_choice_async(provider: Optional[str] = None) -> str:
+    """Get model choice from credential service."""
+    from ..credential_service import credential_service
+    
+    # Get the active provider configuration
+    provider_config = await credential_service.get_active_provider("llm")
+    model = provider_config.get("chat_model", "gpt-4.1-nano")
+    
+    search_logger.debug(f"Using model from credential service: {model}")
+    
+    return model
+  
 def _get_model_choice() -> str:
     """Get MODEL_CHOICE from credential service."""
     try:
@@ -212,10 +228,28 @@ def _get_model_choice() -> str:
         model = os.getenv("MODEL_CHOICE", "gpt-4.1-nano")
     
     search_logger.debug(f"Using MODEL_CHOICE: {model}")
+
     return model
 
 
-def generate_contextual_embeddings_batch(full_documents: List[str], chunks: List[str]) -> List[Tuple[str, bool]]:
+def _get_model_choice() -> str:
+    """Get model choice from credential service using proper methods (sync version)."""
+    try:
+        # Import the sync helper from llm_provider_service
+        from ..llm_provider_service import _get_active_provider_sync
+        
+        provider_config = _get_active_provider_sync()
+        model = provider_config["chat_model"]
+        provider = provider_config["provider"]
+        
+        search_logger.debug(f"Using model from provider config: {model} with provider: {provider}")
+        return model
+    except Exception as e:
+        search_logger.warning(f"Error getting provider config: {e}, using default")
+        return "gpt-4.1-nano"
+
+
+def generate_contextual_embeddings_batch(full_documents: List[str], chunks: List[str], provider: str = None) -> List[Tuple[str, bool]]:
     """
     Generate contextual information for multiple chunks in a single API call to avoid rate limiting.
     
@@ -225,6 +259,7 @@ def generate_contextual_embeddings_batch(full_documents: List[str], chunks: List
     Args:
         full_documents: List of complete document texts
         chunks: List of specific chunks to generate context for
+        provider: Optional provider override
         
     Returns:
         List of tuples containing:

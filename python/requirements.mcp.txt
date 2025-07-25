@@ -1,5 +1,5 @@
 # MCP Service Dependencies - Minimal
-mcp==1.7.1
+mcp==1.12.2
 httpx>=0.24.0
 pydantic>=2.0.0
 python-dotenv>=1.0.0

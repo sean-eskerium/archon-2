@@ -338,6 +338,89 @@ class CredentialService:
                 env_dict[key] = str(value) if value is not None else ""
         
         return env_dict
+    
+    # Provider Management Methods
+    async def get_active_provider(self, service_type: str = "llm") -> Dict[str, Any]:
+        """
+        Get the currently active provider configuration.
+        
+        Args:
+            service_type: Either 'llm' or 'embedding'
+            
+        Returns:
+            Dict with provider, api_key, base_url, and models
+        """
+        try:
+            # Get RAG strategy settings (where UI saves provider selection)
+            rag_settings = await self.get_credentials_by_category("rag_strategy")
+            
+            # Get the selected provider
+            provider = rag_settings.get("LLM_PROVIDER", "openai")
+            
+            # Get API key for this provider
+            api_key = await self._get_provider_api_key(provider)
+            
+            # Get base URL if needed
+            base_url = self._get_provider_base_url(provider, rag_settings)
+            
+            # Get models
+            chat_model = rag_settings.get("MODEL_CHOICE", "")
+            embedding_model = rag_settings.get("EMBEDDING_MODEL", "")
+            
+            return {
+                "provider": provider,
+                "api_key": api_key,
+                "base_url": base_url,
+                "chat_model": chat_model,
+                "embedding_model": embedding_model
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting active provider for {service_type}: {e}")
+            # Fallback to environment variable
+            provider = os.getenv("LLM_PROVIDER", "openai")
+            return {
+                "provider": provider,
+                "api_key": os.getenv("OPENAI_API_KEY"),
+                "base_url": None,
+                "chat_model": "",
+                "embedding_model": ""
+            }
+    
+    async def _get_provider_api_key(self, provider: str) -> Optional[str]:
+        """Get API key for a specific provider."""
+        key_mapping = {
+            "openai": "OPENAI_API_KEY",
+            "google": "GOOGLE_API_KEY",
+            "ollama": None  # No API key needed
+        }
+        
+        key_name = key_mapping.get(provider)
+        if key_name:
+            return await self.get_credential(key_name)
+        return "ollama" if provider == "ollama" else None
+    
+    def _get_provider_base_url(self, provider: str, rag_settings: Dict) -> Optional[str]:
+        """Get base URL for provider."""
+        if provider == "ollama":
+            return rag_settings.get("LLM_BASE_URL", "http://localhost:11434/v1")
+        elif provider == "google":
+            return "https://generativelanguage.googleapis.com/v1beta/openai/"
+        return None  # Use default for OpenAI
+    
+    async def set_active_provider(self, provider: str, service_type: str = "llm") -> bool:
+        """Set the active provider for a service type."""
+        try:
+            # For now, we'll update the RAG strategy settings
+            return await self.set_credential(
+                "llm_provider", 
+                provider, 
+                category="rag_strategy",
+                description=f"Active {service_type} provider"
+            )
+        except Exception as e:
+            logger.error(f"Error setting active provider {provider} for {service_type}: {e}")
+            return False
 
 # Global instance
 credential_service = CredentialService()
@@ -383,11 +466,11 @@ async def initialize_credentials() -> None:
     
     # LLM provider credentials (for sync client support)
     provider_credentials = [
-        "openrouter_api_key",  # OpenRouter API key
-        "google_api_key",      # Google Gemini API key
+        "GOOGLE_API_KEY",      # Google Gemini API key
         "LLM_PROVIDER",        # Selected provider
         "LLM_BASE_URL",        # Ollama base URL
-        "EMBEDDING_MODEL"      # Custom embedding model
+        "EMBEDDING_MODEL",     # Custom embedding model
+        "MODEL_CHOICE"         # Chat model for sync contexts
     ]
     
     # RAG settings that should NOT be set as env vars (will be looked up on demand):
@@ -396,7 +479,6 @@ async def initialize_credentials() -> None:
     # - USE_HYBRID_SEARCH
     # - USE_AGENTIC_RAG
     # - USE_RERANKING
-    # - MODEL_CHOICE
     
     # Code extraction settings (loaded on demand, not set as env vars):
     # - MIN_CODE_BLOCK_LENGTH

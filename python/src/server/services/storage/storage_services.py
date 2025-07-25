@@ -143,7 +143,8 @@ class DocumentStorageService(BaseStorageService):
                     url_to_full_document=url_to_full_document,
                     batch_size=15,
                     progress_callback=progress_callback,
-                    enable_parallel_batches=True
+                    enable_parallel_batches=True,
+                    provider=None  # Use configured provider
                 )
                 
                 await report_progress("Document upload completed!", 100)

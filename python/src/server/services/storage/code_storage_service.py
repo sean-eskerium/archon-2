@@ -16,36 +16,24 @@ from ...config.logfire_config import search_logger
 from ..embeddings.embedding_service import create_embeddings_batch, create_embedding, create_embeddings_batch_async, create_embedding_async
 from ..embeddings.contextual_embedding_service import generate_contextual_embeddings_batch
 from ..llm_provider_service import get_llm_client_sync
+from ..credential_service import credential_service
 
 
 def _get_model_choice() -> str:
-    """Get MODEL_CHOICE from credential service."""
+    """Get MODEL_CHOICE from credential service using proper methods (sync version)."""
     try:
-        # Import here to avoid circular dependency
-        from ...services.credential_service import credential_service
-        # Use asyncio to run the async credential lookup
-        import asyncio
+        # Import the sync helper from llm_provider_service
+        from ..llm_provider_service import _get_active_provider_sync
         
-        # Try to get the current event loop, or create one if none exists
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If we're in an async context, we can't use run_until_complete
-                # Fall back to environment variable or default
-                model = os.getenv("MODEL_CHOICE", "gpt-4.1-nano")
-            else:
-                model = loop.run_until_complete(credential_service.get_credential("MODEL_CHOICE", "gpt-4.1-nano"))
-        except RuntimeError:
-            # No event loop exists, create one
-            model = asyncio.run(credential_service.get_credential("MODEL_CHOICE", "gpt-4.1-nano"))
-            
+        provider_config = _get_active_provider_sync()
+        model = provider_config["chat_model"]
+        provider = provider_config["provider"]
+        
+        search_logger.debug(f"Using model from provider config: {model} with provider: {provider}")
+        return model
     except Exception as e:
-        # Fallback to environment variable or default if credential service fails
-        search_logger.warning(f"Failed to get MODEL_CHOICE from credential service: {e}, using fallback")
-        model = os.getenv("MODEL_CHOICE", "gpt-4.1-nano")
-    
-    search_logger.debug(f"Using MODEL_CHOICE: {model}")
-    return model
+        search_logger.warning(f"Error getting provider config: {e}, using default")
+        return "gpt-4.1-nano"
 
 
 def _get_max_workers() -> int:
@@ -225,7 +213,7 @@ def extract_code_blocks(markdown_content: str, min_length: int = None) -> List[D
     return code_blocks
 
 
-def generate_code_example_summary(code: str, context_before: str, context_after: str, language: str = "") -> Dict[str, str]:
+def generate_code_example_summary(code: str, context_before: str, context_after: str, language: str = "", provider: str = None) -> Dict[str, str]:
     """
     Generate a summary and name for a code example using its surrounding context.
     
@@ -234,6 +222,7 @@ def generate_code_example_summary(code: str, context_before: str, context_after:
         context_before: Context before the code
         context_after: Context after the code
         language: The code language (if known)
+        provider: Optional provider override
         
     Returns:
         A dictionary with 'summary' and 'example_name'
@@ -269,6 +258,7 @@ Format your response as JSON:
     
     try:
         # Get LLM client using the provider service
+        # Note: Sync version has limited provider support
         try:
             client = get_llm_client_sync()
         except Exception as e:
@@ -286,8 +276,6 @@ Format your response as JSON:
                 {"role": "system", "content": "You are a helpful assistant that analyzes code examples and provides JSON responses with example names and summaries."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.3,
-            max_tokens=150,
             response_format={"type": "json_object"}
         )
         
@@ -425,7 +413,8 @@ async def add_code_examples_to_supabase(
     metadatas: List[Dict[str, Any]],
     batch_size: int = 20,
     url_to_full_document: Optional[Dict[str, str]] = None,
-    progress_callback: Optional[Callable] = None
+    progress_callback: Optional[Callable] = None,
+    provider: Optional[str] = None
 ):
     """
     Add code examples to the Supabase code_examples table in batches.
@@ -520,7 +509,7 @@ async def add_code_examples_to_supabase(
             batch_texts = combined_texts
         
         # Create embeddings for the batch
-        embeddings = await create_embeddings_batch_async(batch_texts)
+        embeddings = await create_embeddings_batch_async(batch_texts, provider=provider)
         
         # Check if embeddings are valid (not all zeros)
         valid_embeddings = []
@@ -530,7 +519,7 @@ async def add_code_examples_to_supabase(
             else:
                 search_logger.warning("Zero or invalid embedding detected, creating new one...")
                 # Try to create a single embedding as fallback using async version
-                single_embedding = await create_embedding_async(batch_texts[idx])
+                single_embedding = await create_embedding_async(batch_texts[idx], provider=provider)
                 valid_embeddings.append(single_embedding)
         
         # Prepare batch data

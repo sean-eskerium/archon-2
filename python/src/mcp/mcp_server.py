@@ -1,14 +1,17 @@
 """
-Lightweight MCP Server for Archon (Microservices Version)
+MCP Server for Archon (Microservices Version)
 
-This is the lightweight MCP server that uses HTTP calls to other services
+This is the MCP server that uses HTTP calls to other services
 instead of importing heavy dependencies directly. This significantly reduces
 the container size from 1.66GB to ~150MB.
 
 Modules:
-- RAG Module: Delegates to API service via HTTP
-- Project Module: Delegates to API service via HTTP
-- Health & Session: Local lightweight operations
+- RAG Module: RAG queries, search, and source management via HTTP
+- Project Module: Task and project management via HTTP
+- Health & Session: Local operations
+
+Note: Crawling and document upload operations are handled directly by the
+API service and frontend, not through MCP tools.
 """
 from mcp.server.fastmcp import FastMCP, Context
 from contextlib import asynccontextmanager
@@ -24,6 +27,7 @@ import logging
 import traceback
 import time
 from datetime import datetime
+from typing import Any
 import threading
 import json
 
@@ -49,7 +53,7 @@ logger = logging.getLogger(__name__)
 # Import Logfire configuration
 from src.server.config.logfire_config import setup_logfire, mcp_logger
 
-# Import session management (lightweight)
+# Import session management
 from src.server.services.mcp_session_manager import get_session_manager
 
 # Import service client for HTTP calls
@@ -60,10 +64,13 @@ _initialization_lock = threading.Lock()
 _initialization_complete = False
 _shared_context = None
 
+server_host = "0.0.0.0"  # Listen on all interfaces
+server_port = 8051       # Fixed port
+
 @dataclass
-class LightweightArchonContext:
+class ArchonContext:
     """
-    Lightweight context for MCP server.
+    Context for MCP server.
     No heavy dependencies - just service client for HTTP calls.
     """
     service_client: Any
@@ -81,7 +88,7 @@ class LightweightArchonContext:
         if self.startup_time is None:
             self.startup_time = time.time()
 
-async def perform_health_checks(context: LightweightArchonContext):
+async def perform_health_checks(context: ArchonContext):
     """Perform health checks on dependent services via HTTP."""
     try:
         # Check dependent services
@@ -107,15 +114,15 @@ async def perform_health_checks(context: LightweightArchonContext):
         context.health_status["last_health_check"] = datetime.now().isoformat()
 
 @asynccontextmanager
-async def lightweight_lifespan(server: FastMCP) -> AsyncIterator[LightweightArchonContext]:
+async def lifespan(server: FastMCP) -> AsyncIterator[ArchonContext]:
     """
-    Lightweight lifecycle manager - no heavy dependencies.
+    Lifecycle manager - no heavy dependencies.
     """
     global _initialization_complete, _shared_context
     
     # Quick check without lock
     if _initialization_complete and _shared_context:
-        logger.info("♻️ Reusing existing lightweight context for new SSE connection")
+        logger.info("♻️ Reusing existing context for new SSE connection")
         yield _shared_context
         return
     
@@ -123,14 +130,14 @@ async def lightweight_lifespan(server: FastMCP) -> AsyncIterator[LightweightArch
     with _initialization_lock:
         # Double-check pattern
         if _initialization_complete and _shared_context:
-            logger.info("♻️ Reusing existing lightweight context for new SSE connection")
+            logger.info("♻️ Reusing existing context for new SSE connection")
             yield _shared_context
             return
         
-        logger.info("🚀 Starting Lightweight MCP server...")
+        logger.info("🚀 Starting MCP server...")
         
         try:
-            # Initialize session manager (lightweight)
+            # Initialize session manager
             logger.info("🔐 Initializing session manager...")
             session_manager = get_session_manager()
             logger.info("✓ Session manager initialized")
@@ -141,15 +148,15 @@ async def lightweight_lifespan(server: FastMCP) -> AsyncIterator[LightweightArch
             logger.info("✓ Service client initialized")
             
             
-            # Create lightweight context  
-            context = LightweightArchonContext(
+            # Create context  
+            context = ArchonContext(
                 service_client=service_client
             )
             
             # Perform initial health check
             await perform_health_checks(context)
             
-            logger.info("✓ Lightweight MCP server ready")
+            logger.info("✓ MCP server ready")
             
             # Store context globally
             _shared_context = context
@@ -163,30 +170,23 @@ async def lightweight_lifespan(server: FastMCP) -> AsyncIterator[LightweightArch
             raise
         finally:
             # Clean up resources  
-            logger.info("🧹 Cleaning up lightweight MCP server...")
-            logger.info("✅ Lightweight MCP server shutdown complete")
+            logger.info("🧹 Cleaning up MCP server...")
+            logger.info("✅ MCP server shutdown complete")
 
 # Initialize the main FastMCP server with fixed configuration
-try:
-    # Fixed configuration for SSE-only mode
-    server_host = "0.0.0.0"  # Listen on all interfaces
-    server_port = 8051       # Fixed port
-    
-    logger.info("🏗️ LIGHTWEIGHT MCP SERVER INITIALIZATION:")
-    logger.info(f"   Server Name: archon-mcp-server-lightweight")
-    logger.info(f"   Description: Lightweight MCP server using HTTP calls")
-    logger.info(f"   Host: {server_host}")
-    logger.info(f"   Port: {server_port}")
-    logger.info(f"   Mode: Streamable HTTP (with SSE fallback)")
+try:    
+    logger.info("🏗️ MCP SERVER INITIALIZATION:")
+    logger.info(f"   Server Name: archon-mcp-server")
+    logger.info(f"   Description: MCP server using HTTP calls")
     
     mcp = FastMCP(
-        "archon-mcp-server-lightweight",
-        description="Lightweight MCP server for Archon - uses HTTP calls to other services",
-        lifespan=lightweight_lifespan
+        "archon-mcp-server",
+        description="MCP server for Archon - uses HTTP calls to other services",
+        lifespan=lifespan,
+        host=server_host,
+        port=8000
     )
-    logger.info(f"✓ Lightweight FastMCP server instance created successfully")
-    logger.info(f"   HTTP endpoint: http://{server_host}:{server_port}/mcp")
-    logger.info(f"   SSE endpoint (fallback): http://{server_host}:{server_port}/sse")
+    logger.info(f"✓ FastMCP server instance created successfully")
     
 except Exception as e:
     logger.error(f"✗ Failed to create FastMCP server: {e}")
@@ -278,10 +278,10 @@ async def session_info(ctx: Context) -> str:
             "timestamp": datetime.now().isoformat()
         })
 
-# Import and register lightweight modules
+# Import and register modules
 def register_modules():
-    """Register all MCP tool modules (lightweight versions)."""
-    logger.info("🔧 Registering lightweight MCP tool modules...")
+    """Register all MCP tool modules."""
+    logger.info("🔧 Registering MCP tool modules...")
     
     modules_registered = 0
     
@@ -327,29 +327,20 @@ except Exception as e:
     logger.error(traceback.format_exc())
     raise
 
-async def main():
-    """Main entry point for the lightweight MCP server."""
+def main():
+    """Main entry point for the MCP server."""
     try:
         # Initialize Logfire first
-        setup_logfire(service_name="archon-mcp-server-lightweight")
+        setup_logfire(service_name="archon-mcp-server")
         
-        # Fixed configuration for Streamable HTTP mode
-        host = "0.0.0.0"
-        port = 8051
-        
-        logger.info("🚀 Starting Lightweight Archon MCP Server")
+        logger.info("🚀 Starting Archon MCP Server")
         logger.info(f"   Mode: Streamable HTTP")
-        logger.info(f"   Host: {host}")
-        logger.info(f"   Port: {port}")
-        logger.info(f"   URL: http://{host}:{port}/mcp")
+        logger.info(f"   URL: http://{server_host}:{server_port}/mcp")
         
-        mcp_logger.info("🔥 Logfire initialized for lightweight MCP server")
-        mcp_logger.info(f"🌟 Starting lightweight MCP server - host={host}, port={port}")
+        mcp_logger.info("🔥 Logfire initialized for MCP server")
+        mcp_logger.info(f"🌟 Starting MCP server - host={server_host}, port={server_port}")
         
-        # Run with SSE transport - FastMCP handles binding internally
-        logger.info("🌐 Starting Server-Sent Events (SSE) transport")
-        logger.info("📍 FastMCP will bind to 0.0.0.0:8000 by default")
-        await mcp.run_sse_async()
+        mcp.run(transport="streamable-http")
             
     except Exception as e:
         mcp_logger.error(f"💥 Fatal error in main - error={str(e)}, error_type={type(e).__name__}")
@@ -359,13 +350,10 @@ async def main():
 
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        main()
     except KeyboardInterrupt:
-        logger.info("👋 Lightweight MCP server stopped by user")
+        logger.info("👋 MCP server stopped by user")
     except Exception as e:
         logger.error(f"💥 Unhandled exception: {e}")
         logger.error(traceback.format_exc())
         sys.exit(1)
-
-# Missing import fix
-from typing import Any

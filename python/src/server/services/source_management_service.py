@@ -13,50 +13,38 @@ from supabase import Client
 from ..config.logfire_config import search_logger, get_logger
 from .client_manager import get_supabase_client
 from .llm_provider_service import get_llm_client_sync
+from .credential_service import credential_service
 
 logger = get_logger(__name__)
 
 
 def _get_model_choice() -> str:
-    """Get MODEL_CHOICE from credential service."""
+    """Get MODEL_CHOICE from credential service using proper methods (sync version)."""
     try:
-        # Import here to avoid circular dependency
-        from .credential_service import credential_service
-        # Use asyncio to run the async credential lookup
-        import asyncio
+        # Import the sync helper from llm_provider_service
+        from .llm_provider_service import _get_active_provider_sync
         
-        # Try to get the current event loop, or create one if none exists
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If we're in an async context, we can't use run_until_complete
-                # Fall back to environment variable or default
-                model = os.getenv("MODEL_CHOICE", "gpt-4.1-nano")
-            else:
-                model = loop.run_until_complete(credential_service.get_credential("MODEL_CHOICE", "gpt-4.1-nano"))
-        except RuntimeError:
-            # No event loop exists, create one
-            model = asyncio.run(credential_service.get_credential("MODEL_CHOICE", "gpt-4.1-nano"))
-            
+        provider_config = _get_active_provider_sync()
+        model = provider_config["chat_model"]
+        provider = provider_config["provider"]
+        
+        logger.debug(f"Using model from provider config: {model} with provider: {provider}")
+        return model
     except Exception as e:
-        # Fallback to environment variable or default if credential service fails
-        logger.warning(f"Failed to get MODEL_CHOICE from credential service: {e}, using fallback")
-        model = os.getenv("MODEL_CHOICE", "gpt-4.1-nano")
-    
-    logger.debug(f"Using MODEL_CHOICE: {model}")
-    return model
+        logger.warning(f"Error getting provider config: {e}, using default")
+        return "gpt-4.1-nano"
 
-
-def extract_source_summary(source_id: str, content: str, max_length: int = 500) -> str:
+def extract_source_summary(source_id: str, content: str, max_length: int = 500, provider: str = None) -> str:
     """
     Extract a summary for a source from its content using an LLM.
     
-    This function uses the OpenAI API to generate a concise summary of the source content.
+    This function uses the configured provider to generate a concise summary of the source content.
     
     Args:
         source_id: The source ID (domain)
         content: The content to extract a summary from
         max_length: Maximum length of the summary
+        provider: Optional provider override
         
     Returns:
         A summary string
@@ -69,6 +57,7 @@ def extract_source_summary(source_id: str, content: str, max_length: int = 500) 
     
     # Get the model choice from credential service (RAG setting)
     model_choice = _get_model_choice()
+    search_logger.info(f"Generating summary for {source_id} using model: {model_choice}")
     
     # Limit content length to avoid token limits
     truncated_content = content[:25000] if len(content) > 25000 else content
@@ -85,6 +74,7 @@ The above content is from the documentation for '{source_id}'. Please provide a 
         # Get LLM client using the provider service
         try:
             client = get_llm_client_sync()
+            search_logger.info(f"Successfully created LLM client for summary generation")
         except Exception as e:
             search_logger.error(f"Failed to create LLM client: {e}")
             return default_summary
@@ -95,13 +85,20 @@ The above content is from the documentation for '{source_id}'. Please provide a 
             messages=[
                 {"role": "system", "content": "You are a helpful assistant that provides concise library/tool/framework summaries."},
                 {"role": "user", "content": prompt}
-            ],
-            temperature=0.3,
-            max_tokens=150
+            ]
         )
         
-        # Extract the generated summary
-        summary = response.choices[0].message.content.strip()
+        # Extract the generated summary with proper error handling
+        if not response or not response.choices or len(response.choices) == 0:
+            search_logger.error(f"Empty or invalid response from LLM for {source_id}")
+            return default_summary
+            
+        message_content = response.choices[0].message.content
+        if message_content is None:
+            search_logger.error(f"LLM returned None content for {source_id}")
+            return default_summary
+            
+        summary = message_content.strip()
         
         # Ensure the summary is not too long
         if len(summary) > max_length:
@@ -118,7 +115,8 @@ def generate_source_title_and_metadata(
     source_id: str, 
     content: str, 
     knowledge_type: str = "technical", 
-    tags: Optional[List[str]] = None
+    tags: Optional[List[str]] = None,
+    provider: str = None
 ) -> Tuple[str, Dict[str, Any]]:
     """
     Generate a user-friendly title and metadata for a source based on its content.
@@ -139,6 +137,7 @@ def generate_source_title_and_metadata(
     if content and len(content.strip()) > 100:
         try:
             # Get LLM client using the provider service
+            # Note: Sync version has limited provider support
             try:
                 client = get_llm_client_sync()
             except Exception as e:
@@ -162,9 +161,7 @@ Provide only the title, nothing else."""
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that generates concise titles."},
                     {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-                max_tokens=20
+                ]
             )
             
             generated_title = response.choices[0].message.content.strip()

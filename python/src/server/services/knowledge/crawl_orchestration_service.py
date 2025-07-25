@@ -636,7 +636,8 @@ class CrawlOrchestrationService:
             url_to_full_document=url_to_full_document,
             batch_size=10,
             progress_callback=doc_storage_callback,  # Pass the callback for progress updates
-            enable_parallel_batches=True  # Enable parallel processing
+            enable_parallel_batches=True,  # Enable parallel processing
+            provider=None  # Use configured provider
         )
         
         # Progress will be at 80% after document storage completes
